@@ -48,6 +48,6 @@ uv run kolo-design pdf create \
   --output "/home/node/.openclaw/kolo-create-data/output/your-company-brief.pdf"
 ```
 
-The extraction output contains an immutable `1.0.0` design system, `latest.json`, source screenshot, logo asset, evidence, and specimen. PDF output includes previews and a quality report.
+The extraction output contains an immutable `1.0.0` design system, `latest.json`, source screenshot, logo asset, evidence, component inventory, and specimen. PDF output includes previews and a quality report.
 
 Optional LLM planning requires `KOLO_LLM_BASE_URL`, `KOLO_LLM_TOKEN`, `--planner llm`, and an explicit model ID selected from that workspace's catalog and entitlement.

@@ -26,7 +26,11 @@ uv run kolo-design pdf create \
 
 Website extraction prefers Chromium-rendered computed styles, captures a source screenshot, and falls back to bounded static HTML/CSS extraction. It rejects private-network targets and validates every HTTP redirect.
 
+The resulting design system includes component recipes for heading hierarchy, primary and secondary buttons, cards, navigation, section surfaces, imagery proportions, borders, radii, shadows, padding, and alignment. A separate component inventory and expanded specimen make the extracted language inspectable before reuse.
+
 PDF creation reopens the final document, measures source-content coverage, renders PNG previews with Poppler, and writes a quality report.
+
+Inline bold, links, and code spans are converted for ReportLab. Emoji unsupported by the PDF fonts are removed automatically and counted in the quality report, so the agent does not need to rewrite the source into a separate print copy.
 
 ## Modular planning
 

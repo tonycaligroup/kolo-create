@@ -20,6 +20,19 @@ from .contracts import validate_design_system, validate_document_request
 from .planner import DeterministicPlanner, DocumentPlanner
 from .util import confined, read_json, sha256_bytes, slugify, write_json
 
+EMOJI_PATTERN = re.compile(
+    "["
+    "\\U0001F1E6-\\U0001F1FF"
+    "\\U0001F300-\\U0001FAFF"
+    "\\U00002700-\\U000027BF"
+    "\\U00002600-\\U000026FF"
+    "\\U00002B00-\\U00002BFF"
+    "\\U00002300-\\U000023FF"
+    "\\U0000FE0F\\U0000200D"
+    "]+"
+)
+TOFU_MARKERS = {"■", "□", "�"}
+
 
 def _reportlab_color(value: str) -> colors.Color:
     return colors.HexColor(value)
@@ -32,6 +45,24 @@ def _font_roles(system: dict[str, Any]) -> tuple[str, str, str]:
     body = system["tokens"]["typography"]["body_family"].lower()
     body_font = "Times-Roman" if any(marker in body for marker in serif_markers) else "Helvetica"
     return display_font, body_font, "Helvetica-Bold"
+
+
+def _print_safe_text(value: str) -> tuple[str, int]:
+    matches = EMOJI_PATTERN.findall(value)
+    cleaned = EMOJI_PATTERN.sub("", value)
+    cleaned = re.sub(r"[ \t]+([,.;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    return cleaned, sum(len(match) for match in matches)
+
+
+def _inline_markdown(value: str) -> str:
+    safe = html.escape(value)
+    safe = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", safe)
+    safe = re.sub(r"__([^_\n]+)__", r"<b>\1</b>", safe)
+    safe = re.sub(r"`([^`\n]+)`", r"<font name=\"Courier\">\1</font>", safe)
+    safe = re.sub(r"\[([^]\n]+)\]\((https?://[^)\s]+)\)", r'<link href="\2">\1</link>', safe)
+    return safe
 
 
 def _blocks(content: str) -> list[tuple[str, str]]:
@@ -72,8 +103,12 @@ def create_pdf(
     validate_design_system(system)
     content = content_path.read_text(encoding="utf-8")
     validate_document_request(content, prompt)
+    print_content, removed_emoji_count = _print_safe_text(content)
     planner = planner or DeterministicPlanner()
     plan = planner.plan(content, prompt)
+    plan["title"], title_emoji_count = _print_safe_text(str(plan["title"]))
+    plan["subtitle"], subtitle_emoji_count = _print_safe_text(str(plan["subtitle"]))
+    removed_emoji_count += title_emoji_count + subtitle_emoji_count
 
     page_size = A4 if plan["page_size"] == "A4" else LETTER
     if plan["orientation"] == "landscape":
@@ -125,10 +160,10 @@ def create_pdf(
 
     story: list[Any] = [Spacer(1, height * 0.13)]
     story.append(Paragraph(html.escape(system["name"].upper()), styles["eyebrow"]))
-    story.append(Paragraph(html.escape(plan["title"]), styles["cover"]))
+    story.append(Paragraph(_inline_markdown(plan["title"]), styles["cover"]))
     story.append(Table([[""]], colWidths=[1.2 * inch], rowHeights=[5], style=TableStyle([("BACKGROUND", (0, 0), (-1, -1), accent)])))
     story.append(Spacer(1, base * 3))
-    story.append(Paragraph(html.escape(plan["subtitle"]), styles["subtitle"]))
+    story.append(Paragraph(_inline_markdown(plan["subtitle"]), styles["subtitle"]))
     logo = next((asset for asset in system["assets"] if asset.get("kind") == "logo" and Path(asset.get("path", "")).suffix.lower() in {".png", ".jpg", ".jpeg"}), None)
     if logo and Path(logo["path"]).exists():
         image = Image(logo["path"], width=1.5 * inch, height=0.65 * inch, kind="proportional")
@@ -136,11 +171,14 @@ def create_pdf(
         story.extend([Spacer(1, base * 5), image])
     story.append(PageBreak())
 
-    parsed = _blocks(content)
+    parsed = _blocks(print_content)
     if parsed and parsed[0][0] == "heading1" and parsed[0][1].strip().lower() == plan["title"].strip().lower():
         parsed = parsed[1:]
+    previous_kind: str | None = None
     for kind, value in parsed:
-        safe = html.escape(value)
+        safe = _inline_markdown(value)
+        if kind == "paragraph" and previous_kind == "bullet":
+            story.append(Spacer(1, base * 1.5))
         if kind == "heading1":
             story.append(CondPageBreak(110))
             story.append(Paragraph(safe, styles["h1"]))
@@ -154,6 +192,7 @@ def create_pdf(
             story.append(Paragraph(f"<bullet>•</bullet>{safe}", styles["bullet"]))
         else:
             story.append(Paragraph(safe, styles["body"]))
+        previous_kind = kind
 
     document.build(story, onFirstPage=decorate, onLaterPages=decorate)
     payload = output_path.read_bytes()
@@ -164,6 +203,12 @@ def create_pdf(
     coverage = len(source_words & output_words) / max(1, len(source_words))
     if coverage < 0.75:
         raise RuntimeError(f"PDF content coverage check failed: {coverage:.1%}")
+    unresolved_markdown = "**" in extracted or "__" in extracted
+    tofu_found = sorted(marker for marker in TOFU_MARKERS if marker in extracted)
+    if unresolved_markdown:
+        raise RuntimeError("PDF contains unresolved inline Markdown markers")
+    if tofu_found:
+        raise RuntimeError(f"PDF contains unsupported replacement glyphs: {tofu_found}")
 
     preview_dir = confined(output_path.parent, output_path.stem + "-preview")
     preview_dir.mkdir(parents=True, exist_ok=True)
@@ -182,7 +227,14 @@ def create_pdf(
         "planner": planner.version,
         "prompt": prompt,
         "pdf": {"path": str(output_path), "sha256": sha256_bytes(payload), "bytes": len(payload), "pages": len(reader.pages)},
-        "checks": {"pdf_reopened": True, "content_coverage": round(coverage, 4), "previews_rendered": bool(previews)},
+        "checks": {
+            "pdf_reopened": True,
+            "content_coverage": round(coverage, 4),
+            "inline_markdown_resolved": not unresolved_markdown,
+            "tofu_glyphs_absent": not tofu_found,
+            "previews_rendered": bool(previews),
+        },
+        "normalization": {"unsupported_emoji_removed": removed_emoji_count},
         "previews": previews,
     }
     quality_path = output_path.with_suffix(".quality.json")

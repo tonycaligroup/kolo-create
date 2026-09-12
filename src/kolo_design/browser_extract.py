@@ -78,7 +78,25 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
                       `width:${Math.round(r.width)}px`, `max-width:${s.maxWidth}`
                     ].join(';');
                   });
-                  return { title: document.title, html: document.documentElement.outerHTML, computed_css: rows.join('\\n') };
+                  const elements = visible.slice(0, 1800).map((el) => {
+                    const s = getComputedStyle(el), r = el.getBoundingClientRect();
+                    return {
+                      tag: el.tagName.toLowerCase(),
+                      role: el.getAttribute('role') || '',
+                      href: Boolean(el.getAttribute('href')),
+                      text_sample: (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ').slice(0, 80),
+                      rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+                      style: {
+                        color: s.color, background: s.backgroundColor, border_color: s.borderColor,
+                        border_width: s.borderWidth, border_radius: s.borderRadius, box_shadow: s.boxShadow,
+                        font_family: s.fontFamily, font_size: s.fontSize, font_weight: s.fontWeight,
+                        line_height: s.lineHeight, letter_spacing: s.letterSpacing, text_align: s.textAlign,
+                        padding: `${s.paddingTop} ${s.paddingRight} ${s.paddingBottom} ${s.paddingLeft}`,
+                        display: s.display, object_fit: s.objectFit
+                      }
+                    };
+                  });
+                  return { title: document.title, html: document.documentElement.outerHTML, computed_css: rows.join('\\n'), elements, viewport: { width: innerWidth, height: innerHeight } };
                 }"""
             )
             snapshot["url"] = page.url

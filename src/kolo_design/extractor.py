@@ -45,12 +45,16 @@ def _color_to_hex(value: str) -> str | None:
         if value.startswith("rgb"):
             parts = re.findall(r"[\d.]+", value)
             if len(parts) >= 3:
+                if value.startswith("rgba") and len(parts) >= 4 and float(parts[3]) <= 0.01:
+                    return None
                 channels = [round(float(part)) for part in parts[:3]]
                 if all(0 <= channel <= 255 for channel in channels):
                     return "#" + "".join(f"{channel:02X}" for channel in channels)
         if value.startswith("hsl"):
             parts = re.findall(r"[\d.]+", value)
             if len(parts) >= 3:
+                if value.startswith("hsla") and len(parts) >= 4 and float(parts[3]) <= 0.01:
+                    return None
                 h, s, light = float(parts[0]) % 360 / 360, float(parts[1]) / 100, float(parts[2]) / 100
                 red, green, blue = colorsys.hls_to_rgb(h, light, s)
                 return f"#{round(red * 255):02X}{round(green * 255):02X}{round(blue * 255):02X}"
@@ -147,6 +151,102 @@ def _spacing(css: str) -> tuple[int, list[int]]:
     return base, scale
 
 
+def _px(value: str | None) -> float:
+    if not value:
+        return 0
+    match = re.search(r"-?\d+(?:\.\d+)?", value)
+    return float(match.group()) if match else 0
+
+
+def _dominant(values: list[Any], default: Any = None) -> Any:
+    present = [value for value in values if value not in {None, "", "none", "normal", "rgba(0, 0, 0, 0)"}]
+    return Counter(present).most_common(1)[0][0] if present else default
+
+
+def _style_recipe(elements: list[dict[str, Any]], default_colors: dict[str, str]) -> dict[str, Any]:
+    if not elements:
+        return {}
+    styles = [item["style"] for item in elements]
+    foreground = _color_to_hex(_dominant([style.get("color") for style in styles], default_colors["text"])) or default_colors["text"]
+    background = _color_to_hex(_dominant([style.get("background") for style in styles], default_colors["surface"])) or default_colors["surface"]
+    border_color = _color_to_hex(_dominant([style.get("border_color") for style in styles], default_colors["text"])) or default_colors["text"]
+    return {
+        "observations": len(elements),
+        "foreground": foreground,
+        "background": background,
+        "border_color": border_color,
+        "border_width": round(_px(_dominant([style.get("border_width") for style in styles], "0px")), 2),
+        "radius": round(_px(_dominant([style.get("border_radius") for style in styles], "0px")), 2),
+        "shadow": _dominant([style.get("box_shadow") for style in styles], "none"),
+        "font_family": str(_dominant([style.get("font_family") for style in styles], "Helvetica")).split(",")[0].strip(" '\""),
+        "font_size": round(_px(_dominant([style.get("font_size") for style in styles], "16px")), 2),
+        "font_weight": str(_dominant([style.get("font_weight") for style in styles], "400")),
+        "line_height": _dominant([style.get("line_height") for style in styles], "normal"),
+        "letter_spacing": _dominant([style.get("letter_spacing") for style in styles], "normal"),
+        "text_align": _dominant([style.get("text_align") for style in styles], "left"),
+        "padding": _dominant([style.get("padding") for style in styles], "0px"),
+        "typical_width": round(float(_dominant([item["rect"].get("width") for item in elements], 0)), 2),
+        "typical_height": round(float(_dominant([item["rect"].get("height") for item in elements], 0)), 2),
+    }
+
+
+def _component_inventory(elements: list[dict[str, Any]], colors: dict[str, str]) -> dict[str, Any]:
+    headings = {
+        level: _style_recipe([item for item in elements if item.get("tag") == level], colors)
+        for level in ("h1", "h2", "h3")
+    }
+    button_candidates = [
+        item for item in elements
+        if (item.get("tag") == "button" or item.get("role") == "button" or (item.get("tag") == "a" and item.get("href")))
+        and 26 <= item.get("rect", {}).get("height", 0) <= 90
+        and 38 <= item.get("rect", {}).get("width", 0) <= 520
+    ]
+    colored_buttons = [
+        item for item in button_candidates
+        if (_color_to_hex(item["style"].get("background", "")) or colors["background"]) not in {colors["background"], colors["surface"]}
+    ]
+    secondary_buttons = [item for item in button_candidates if item not in colored_buttons]
+    card_candidates = [
+        item for item in elements
+        if item.get("tag") in {"article", "aside", "div", "section"}
+        and 120 <= item.get("rect", {}).get("width", 0) <= 1000
+        and 60 <= item.get("rect", {}).get("height", 0) <= 800
+        and (
+            _px(item["style"].get("border_radius")) >= 4
+            or _px(item["style"].get("border_width")) > 0
+            or item["style"].get("box_shadow") not in {"none", "", None}
+        )
+    ]
+    nav = [item for item in elements if item.get("tag") in {"nav", "header"} or item.get("role") == "navigation"]
+    sections = [
+        item for item in elements
+        if item.get("tag") in {"section", "main", "footer"}
+        and 80 <= item.get("rect", {}).get("height", 0) <= 2500
+    ]
+    images = [item for item in elements if item.get("tag") in {"img", "picture", "video"} and item.get("rect", {}).get("height", 0) > 20]
+    ratios = [round(item["rect"]["width"] / item["rect"]["height"], 2) for item in images if item["rect"]["height"]]
+    return {
+        "typography": headings,
+        "buttons": {
+            "primary": _style_recipe(colored_buttons, colors),
+            "secondary": _style_recipe(secondary_buttons, colors),
+            "labels": [label for label, _ in Counter(item.get("text_sample", "") for item in button_candidates if item.get("text_sample")).most_common(8)],
+        },
+        "cards": _style_recipe(card_candidates, colors),
+        "navigation": _style_recipe(nav, colors),
+        "sections": {
+            "recipe": _style_recipe(sections, colors),
+            "backgrounds": [value for value, _ in Counter(filter(None, (_color_to_hex(item["style"].get("background", "")) for item in sections))).most_common(8)],
+        },
+        "imagery": {
+            "observations": len(images),
+            "common_aspect_ratios": [value for value, _ in Counter(ratios).most_common(6)],
+            "object_fit": _dominant([item["style"].get("object_fit") for item in images], "fill"),
+            "radius": round(_px(_dominant([item["style"].get("border_radius") for item in images], "0px")), 2),
+        },
+    }
+
+
 def _logo_candidates(soup: BeautifulSoup, base_url: str) -> list[tuple[int, str, str]]:
     candidates: list[tuple[int, str, str]] = []
     selectors = [
@@ -224,9 +324,11 @@ def _specimen(system: dict[str, Any]) -> bytes:
         f'<div><span style="background:{value}"></span><b>{html_module.escape(role)}</b><code>{value}</code></div>'
         for role, value in colors.items()
     )
+    primary = system.get("components", {}).get("buttons", {}).get("primary", {})
+    radius = primary.get("radius", system["tokens"]["shape"]["radius"])
     return f"""<!doctype html><html><head><meta charset=\"utf-8\"><title>{html_module.escape(system['name'])} design system</title>
-<style>*{{box-sizing:border-box}}body{{margin:0;background:{colors['background']};color:{colors['text']};font-family:{typo['body_family']},Arial,sans-serif}}main{{max-width:1100px;margin:auto;padding:{spacing*8}px 32px}}.eyebrow{{color:{colors['accent']};text-transform:uppercase;letter-spacing:.14em;font-size:12px}}h1{{font-family:{typo['display_family']},Arial,sans-serif;font-size:clamp(48px,8vw,92px);line-height:.94;max-width:850px;margin:20px 0 64px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px}}.grid div{{background:{colors['surface']};padding:20px;border-radius:{system['tokens']['shape']['radius']}px}}.grid span{{height:120px;display:block;margin-bottom:16px;border:1px solid color-mix(in srgb,currentColor 20%,transparent)}}b,code{{display:block;margin-top:7px}}code{{opacity:.7}}</style></head>
-<body><main><p class=\"eyebrow\">Extracted design language · v{system['version']}</p><h1>{html_module.escape(system['name'])}</h1><div class=\"grid\">{swatches}</div></main></body></html>""".encode()
+<style>*{{box-sizing:border-box}}body{{margin:0;background:{colors['background']};color:{colors['text']};font-family:{typo['body_family']},Arial,sans-serif}}main{{max-width:1100px;margin:auto;padding:{spacing*8}px 32px}}.eyebrow{{color:{colors['accent']};text-transform:uppercase;letter-spacing:.14em;font-size:12px}}h1{{font-family:{typo['display_family']},Arial,sans-serif;font-size:clamp(48px,8vw,92px);line-height:.94;max-width:850px;margin:20px 0 64px}}h2{{font-size:32px;margin:72px 0 24px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:20px}}.grid>div,.card{{background:{colors['surface']};padding:20px;border-radius:{system['tokens']['shape']['radius']}px}}.grid span{{height:120px;display:block;margin-bottom:16px;border:1px solid color-mix(in srgb,currentColor 20%,transparent)}}b,code{{display:block;margin-top:7px}}code{{opacity:.7}}.components{{display:grid;grid-template-columns:1.2fr .8fr;gap:24px}}button{{border:0;border-radius:{radius}px;padding:14px 22px;font:600 15px inherit;margin:0 10px 12px 0}}.primary{{background:{colors['accent']};color:#fff}}.secondary{{background:{colors['surface']};color:{colors['text']};border:1px solid color-mix(in srgb,{colors['text']} 18%,transparent)}}.card{{min-height:180px}}.card p{{max-width:46ch;line-height:1.55}}</style></head>
+<body><main><p class=\"eyebrow\">Extracted design language · v{system['version']}</p><h1>{html_module.escape(system['name'])}</h1><div class=\"grid\">{swatches}</div><h2>Component language</h2><div class=\"components\"><div class=\"card\"><p class=\"eyebrow\">Reusable card</p><h3>Structure from observed evidence</h3><p>Typography, surface, spacing, radius, border, and shadow treatments are stored as reusable recipes.</p></div><div><button class=\"primary\">Primary action</button><button class=\"secondary\">Secondary</button></div></div></main></body></html>""".encode()
 
 
 def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[str, Any]:
@@ -270,6 +372,7 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
     radius = Counter(radii).most_common(1)[0][0] if radii else 12
     content_width = Counter(widths).most_common(1)[0][0] if widths else 1120
     assets = _save_best_logo(soup, final_url, asset_dir)
+    components = _component_inventory(rendered.get("elements", []) if rendered else [], colors)
     screenshot_path = None
     if rendered and rendered.get("screenshot"):
         screenshot_path = brand_dir / "source-screenshot.png"
@@ -294,11 +397,12 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
             "section": {"max_columns": 2, "heading_alignment": "left"},
             "callout": {"background": "surface", "accent_edge": True},
         },
+        "components": components,
         "assets": assets,
         "evidence": {
             "colors": color_evidence,
             "fonts": font_evidence,
-            "counts": {"css_bytes": len(css.encode()), "stylesheets_fetched": len(stylesheet_urls), "logo_assets": len(assets), "browser_rendered": bool(rendered)},
+            "counts": {"css_bytes": len(css.encode()), "stylesheets_fetched": len(stylesheet_urls), "logo_assets": len(assets), "browser_rendered": bool(rendered), "visible_elements_sampled": len(rendered.get("elements", [])) if rendered else 0},
             "limitations": [
                 "v1 reads server-rendered HTML and linked CSS; client-only computed styles may be missed",
                 "semantic token roles are deterministic candidates and should be reviewed before high-stakes publication",
@@ -308,12 +412,14 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
     validate_design_system(system)
     write_json(brand_dir / "design-system.json", system)
     write_json(workspace.resolve() / "brands" / brand_id / "latest.json", system)
+    component_inventory_path = write_json(brand_dir / "component-inventory.json", components)
     atomic_write(brand_dir / "specimen.html", _specimen(system))
     return {
         "status": "succeeded",
         "design_system": str(brand_dir / "design-system.json"),
         "latest": str(workspace.resolve() / "brands" / brand_id / "latest.json"),
         "specimen": str(brand_dir / "specimen.html"),
+        "component_inventory": str(component_inventory_path),
         "brand_id": brand_id,
         "evidence": system["evidence"]["counts"],
         "source_screenshot": str(screenshot_path) if screenshot_path else None,

@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website, then use that saved system with user-supplied text and a design prompt to produce a polished, verified PDF. Use when a user wants to capture brand language, generate branded documents, refresh a saved brand, or reuse a brand across new PDFs.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.1.0
+version: 0.2.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: website extraction creates a reusable versioned design system; PDF generation consumes an exact saved version without recrawling or modifying it.
@@ -24,6 +24,8 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 ```
 
 Return the design-system JSON, specimen, source screenshot, brand ID, and evidence counts. Explain that observed values are evidence while semantic token roles are deterministic candidates.
+
+The design system includes more than tokens: capture observed heading levels, primary and secondary buttons, cards, navigation, section surfaces, imagery proportions, borders, radii, shadows, padding, alignment, and common labels. Return the separate component-inventory path as well.
 
 ## 2. Create a PDF
 
@@ -53,6 +55,8 @@ The LLM route requires `KOLO_LLM_BASE_URL` and `KOLO_LLM_TOKEN`. Choose the mode
 - Preserve source URLs and hashes; never send entire webpages or binary assets to an LLM.
 - Do not recrawl or mutate a design system during PDF generation.
 - Preserve supplied facts and reject low source-content coverage.
+- Convert supported inline Markdown such as `**bold**`, links, and code spans before rendering. Remove unsupported emoji deterministically and report the count; never ask the agent to rewrite the user's source merely to avoid tofu glyphs.
+- Fail quality checks if unresolved Markdown markers or tofu/replacement glyphs reach the PDF text layer.
 - Reopen each PDF and render PNG previews before delivery.
 - Use the workspace's one configured image-generation route only when imagery is requested. V1 does not require generated imagery.
 - Keep output comfortably below Kolo's practical attachment limit.
