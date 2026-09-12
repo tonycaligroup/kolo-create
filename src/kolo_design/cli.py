@@ -13,12 +13,12 @@ from .planner import DeterministicPlanner, OpenAICompatiblePlanner
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="kolo-design")
     commands = root.add_subparsers(dest="command", required=True)
-    brand = commands.add_parser("brand", help="Create a reusable design system from a website")
-    brand_commands = brand.add_subparsers(dest="brand_command", required=True)
-    extract = brand_commands.add_parser("extract")
-    extract.add_argument("--url", required=True)
-    extract.add_argument("--workspace", type=Path, required=True)
-    extract.add_argument("--name")
+    create_system = commands.add_parser("create", help="Create a reusable design system from a website")
+    create_commands = create_system.add_subparsers(dest="create_command", required=True)
+    design_system = create_commands.add_parser("design-system", help="Create a design system from a public website")
+    design_system.add_argument("--url", required=True)
+    design_system.add_argument("--workspace", type=Path, required=True)
+    design_system.add_argument("--name")
 
     pdf = commands.add_parser("pdf", help="Design a PDF with a saved design system")
     pdf_commands = pdf.add_subparsers(dest="pdf_command", required=True)
@@ -35,7 +35,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        if args.command == "brand":
+        if args.command == "create":
             result = extract_brand(args.url, args.workspace, args.name)
         else:
             if args.planner == "llm":

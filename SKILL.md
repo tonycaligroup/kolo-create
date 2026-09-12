@@ -20,7 +20,7 @@ Kolo Create is one skill with two explicit stages. Never collapse the stages int
 When the user supplies a public website, run:
 
 ```sh
-uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design brand extract --url "<public website>" --name "<brand name>" --workspace "/home/node/.openclaw/kolo-create-data"
+uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design create design-system --url "<public website>" --name "<brand name>" --workspace "/home/node/.openclaw/kolo-create-data"
 ```
 
 Return the design-system JSON, specimen, source screenshot, brand ID, and evidence counts. Explain that observed values are evidence while semantic token roles are deterministic candidates.

@@ -12,7 +12,7 @@ The second stage never recrawls or mutates the brand. This keeps artifacts repro
 ```sh
 uv sync --frozen
 
-uv run kolo-design brand extract \
+uv run kolo-design create design-system \
   --url "https://kolo.ai" \
   --name "Kolo" \
   --workspace "./data"

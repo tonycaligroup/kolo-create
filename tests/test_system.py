@@ -6,6 +6,7 @@ import pytest
 from pypdf import PdfReader
 
 from kolo_design.contracts import validate_design_system
+from kolo_design.cli import parser
 from kolo_design.network import FetchError, assert_public_url
 from kolo_design.pdf_designer import create_pdf
 from kolo_design.util import read_json
@@ -15,6 +16,14 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 def test_fixture_system_is_valid() -> None:
     validate_design_system(read_json(FIXTURES / "design-system.json"))
+
+
+def test_create_design_system_command_contract() -> None:
+    args = parser().parse_args([
+        "create", "design-system", "--url", "https://example.com", "--workspace", "./data"
+    ])
+    assert args.command == "create"
+    assert args.create_command == "design-system"
 
 
 @pytest.mark.parametrize("url", ["http://127.0.0.1", "http://localhost", "http://169.254.169.254/latest/meta-data"])

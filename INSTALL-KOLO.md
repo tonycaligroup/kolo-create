@@ -29,10 +29,10 @@ If Chromium is not `/usr/local/bin/chromium`, set `KOLO_CHROMIUM_PATH` to the ac
 
 ## First Kolo trial
 
-Create the brand system:
+Create the design system:
 
 ```sh
-uv run kolo-design brand extract \
+uv run kolo-design create design-system \
   --url "https://your-company.example" \
   --name "Your Company" \
   --workspace "/home/node/.openclaw/kolo-create-data"
