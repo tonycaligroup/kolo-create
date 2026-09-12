@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "fixture-brand",
+  "version": "1.0.0",
+  "name": "Fixture Brand",
+  "source": {"url": "https://example.com", "html_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "stylesheets": []},
+  "tokens": {
+    "colors": {"background": "#101828", "surface": "#1D2939", "text": "#F9FAFB", "accent": "#F79009"},
+    "typography": {"display_family": "Georgia", "body_family": "Arial", "scale": [11, 14, 18, 26, 40, 64]},
+    "spacing": {"base": 8, "scale": [8, 16, 24, 32, 48, 64]},
+    "shape": {"radius": 12},
+    "layout": {"content_width": 1120, "columns": 12}
+  },
+  "recipes": {"cover": {}, "section": {}, "callout": {}},
+  "assets": [],
+  "evidence": {"colors": [], "fonts": [], "counts": {}, "limitations": []}
+}

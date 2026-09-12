@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kolo Create"
+  short_description: "Extract a brand and create polished PDFs"
+  default_prompt: "Create a reusable design system from my website, then use it with my content and design direction to produce and verify a polished PDF."
