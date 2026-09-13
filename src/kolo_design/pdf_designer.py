@@ -270,6 +270,14 @@ def create_pdf(
     )
     button_border = _reportlab_color(button_border_hex)
     button_border_width = _number(primary_button.get("border_width"), 0, 0, 2)
+    # A sampled navigation treatment can be visually transparent on the page
+    # (for example, white text on a white header). Keep its geometry, but give
+    # document actions a visible brand-colored surface instead of orphaned text.
+    if _contrast_ratio(button_background_hex, palette["background"]) <= 1.05 and button_border_width < 0.5:
+        button_background_hex = palette["accent"]
+        button_foreground_hex = _preferred_foreground(button_background_hex, primary_button.get("foreground"), palette["text"])
+        button_border_hex = button_background_hex
+        button_border = _reportlab_color(button_border_hex)
     eyebrow_hex = _eyebrow_color(palette)
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
@@ -334,7 +342,7 @@ def create_pdf(
         canvas.rect(0, 0, width, height, stroke=0, fill=1)
         canvas.setFillColor(accent)
         if family == "editorial_narrative":
-            canvas.rect(0, 0, 9, height, stroke=0, fill=1)
+            canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
         elif family == "asymmetric_feature_grid":
             canvas.rect(0, height - 12, width * 0.64, 12, stroke=0, fill=1)
             canvas.setFillColor(accent_secondary)
@@ -650,6 +658,7 @@ def create_pdf(
             colWidths=[body_width, close_gap, close_button_width],
             style=TableStyle([
                 ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("LEFTPADDING", (0, 0), (0, -1), max(6, base * 1.5)),
                 ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]),
@@ -666,6 +675,8 @@ def create_pdf(
 
     sections = plan["layout"]["sections"]
     for section_index, section in enumerate(sections):
+        if family == "editorial_narrative" and section_index == 3:
+            story.append(PageBreak())
         if family == "product_showcase" and section_index == 3:
             story.append(PageBreak())
         section_blocks = [by_id[block_id] for block_id in section["block_ids"]]
