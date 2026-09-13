@@ -315,7 +315,10 @@ def create_pdf(
         topMargin=0.78 * inch, bottomMargin=0.7 * inch,
         title=plan["title"], author=f"Kolo Design Studio · {system['name']}",
     )
-    button_width = _number(primary_button.get("typical_width"), 170, 120, min(250, document.width))
+    # BaseDocTemplate's frame reserves six points on each side. Paragraphs already
+    # honor that inset, so explicit table widths must use the same content grid.
+    content_width = document.width - 12
+    button_width = _number(primary_button.get("typical_width"), 170, 120, min(250, content_width))
     styles = {
         "eyebrow": ParagraphStyle("eyebrow", fontName=label_font, fontSize=8.5, leading=11, textColor=_reportlab_color(eyebrow_hex), spaceAfter=base * 2, tracking=1.1),
         "cover-eyebrow": ParagraphStyle("cover-eyebrow", fontName=label_font, fontSize=8.5, leading=11, textColor=_reportlab_color(eyebrow_hex), spaceAfter=base * 2, tracking=1.1, alignment=cover_alignment),
@@ -504,7 +507,7 @@ def create_pdf(
             ])
             component_usage["callouts"] += 1
         elif kind == "action":
-            action_width = fitted_button_width(safe, min(250, document.width))
+            action_width = fitted_button_width(safe, min(250, content_width))
             action = BrandedBox(
                 safe, styles["action"], background=_reportlab_color(button_background_hex),
                 border=button_border, border_width=button_border_width,
@@ -521,8 +524,8 @@ def create_pdf(
         if not card_blocks:
             return
         gap = max(8, base * 2)
-        columns = 1 if document.width < 430 else 2
-        cell_width = (document.width - gap * (columns - 1)) / columns
+        columns = 1 if content_width < 430 else 2
+        cell_width = (content_width - gap * (columns - 1)) / columns
         cells = [
             BrandedBox(
                 _inline_markdown(block["text"]), styles["card"], background=card_background, border=card_border,
@@ -556,10 +559,10 @@ def create_pdf(
         )
         first = BrandedBox(
             _inline_markdown(card_blocks[0]["text"]), asym_lead_style, background=brand_dark,
-            border=card_border, border_width=card_border_width, radius=card_radius, padding=section_padding,
+            border=card_border, border_width=card_border_width, radius=card_radius, padding=card_padding,
             accent=accent_secondary, min_height=76, shadow=bool(card_recipe.get("shadow") and card_recipe.get("shadow") != "none"),
         )
-        story.extend([Table([[first]], colWidths=[document.width], style=TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)])), Spacer(1, gap)])
+        story.extend([Table([[first]], colWidths=[content_width], style=TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)])), Spacer(1, gap)])
         if len(card_blocks) > 1:
             add_card_grid(card_blocks[1:])
         component_usage["cards"] += 1
@@ -568,8 +571,8 @@ def create_pdf(
         if not card_blocks:
             return
         gap = max(7, base * 1.5)
-        columns = 1 if document.width < 430 else 2
-        cell_width = (document.width - gap * (columns - 1)) / columns
+        columns = 1 if content_width < 430 else 2
+        cell_width = (content_width - gap * (columns - 1)) / columns
         cells: list[Any] = []
         for index, block in enumerate(card_blocks):
             module_style = ParagraphStyle(f"module-{index}", parent=styles["module"], textColor=text)
@@ -597,7 +600,7 @@ def create_pdf(
         if not card_blocks:
             return
         gap = max(10, base * 2.5)
-        cell_width = (document.width - gap) / 2
+        cell_width = (content_width - gap) / 2
         cells = [
             BrandedBox(
                 _inline_markdown(block["text"]), styles["module"], background=card_background,
@@ -628,7 +631,7 @@ def create_pdf(
                 border=section_background, border_width=0, radius=0, padding=min(card_padding, 10),
                 min_height=44,
             )
-            row = Table([[number, step]], colWidths=[0.55 * inch, document.width - 0.55 * inch], style=TableStyle([
+            row = Table([[number, step]], colWidths=[0.55 * inch, content_width - 0.55 * inch], style=TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (0, -1), base * 2),
@@ -649,7 +652,7 @@ def create_pdf(
         heading_flowable: Any = ""
         body_values: list[str] = []
         action_flowable: Any = ""
-        close_action_width = min(max(160, document.width * 0.34), document.width * 0.42)
+        close_action_width = min(max(160, content_width * 0.34), content_width * 0.42)
         for block in section_blocks:
             safe = _inline_markdown(block["text"])
             if block["kind"].startswith("heading"):
@@ -668,21 +671,18 @@ def create_pdf(
                     Paragraph("CONTINUE", close_action_label),
                     Spacer(1, max(3, base * 0.7)),
                     Paragraph(safe, close_action_style),
-                    Spacer(1, max(4, base)),
-                    HRFlowable(width="42%", thickness=1.4, color=accent, hAlign="RIGHT"),
                 ]
                 component_usage["actions"] += 1
             else:
                 body_values.append(safe)
                 component_usage["standard_blocks"] += 1
         close_gap = max(12, base * 3)
-        body_width = document.width - close_action_width - close_gap
+        body_width = content_width - close_action_width - close_gap
         body_and_action = Table(
             [[Paragraph("<br/><br/>".join(body_values), close_body), "", action_flowable]],
             colWidths=[body_width, close_gap, close_action_width],
             style=TableStyle([
                 ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("LEFTPADDING", (0, 0), (0, -1), max(6, base * 1.5)),
                 ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]),
