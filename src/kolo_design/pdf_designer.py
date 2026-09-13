@@ -141,6 +141,19 @@ def _inline_markdown(value: str) -> str:
     return safe
 
 
+def _feature_parts(value: str, index: int) -> tuple[str, str]:
+    """Split `**Label:** detail` without breaking the inline-markdown pair."""
+    match = re.match(r"^\*\*(.+?):\*\*\s*(.*)$", value.strip())
+    if match:
+        label, detail = match.groups()
+    else:
+        label, separator, detail = value.strip().partition(":")
+        if not separator or len(label) > 42:
+            return f"Feature {index}", value.strip()
+    label = re.sub(r"^\d{1,2}[.)]\s*", "", label).strip()
+    return label or f"Feature {index}", detail.strip()
+
+
 def _number(value: Any, default: float, minimum: float, maximum: float) -> float:
     try:
         result = float(value)
@@ -258,7 +271,7 @@ def create_pdf(
     removed_emoji_count += title_emoji_count + subtitle_emoji_count
     plan["composition"] = select_composition(system, plan, blocks, prompt)
     validate_composition(plan["composition"])
-    plan["component_plan"] = select_component_plan(system, plan, blocks)
+    plan["component_plan"] = select_component_plan(system, plan, blocks, prompt)
     validate_component_plan(plan["component_plan"])
     family = plan["composition"]["family"]
     component_plan = plan["component_plan"]
@@ -324,11 +337,11 @@ def create_pdf(
         button_border = _reportlab_color(button_border_hex)
     eyebrow_hex = _eyebrow_color(palette)
     cover_alignment = _cover_alignment(family, heading1_recipe.get("text_align"))
-    section_alignment = TA_LEFT if family == "editorial_narrative" else _alignment(heading2_recipe.get("text_align"))
+    section_alignment = TA_LEFT
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
     section_background = _recipe_color(section_recipe.get("background"), palette["surface"])
-    logo_asset = select_logo_asset(
+    logo_asset = None if (system.get("visual_language") or {}).get("primary_mode") == "typography-led" else select_logo_asset(
         system, allow_svg=False, max_width=1.5 * inch, max_height=0.65 * inch,
     )
     cover_asset_id = component_plan["cover"].get("asset_id")
@@ -398,6 +411,27 @@ def create_pdf(
         )
         canvas.restoreState()
 
+    def draw_type_led_motif(canvas: Any) -> None:
+        cover_variant = component_plan["cover"].get("variant", "index")
+        if cover_variant == "wordmark-scale":
+            canvas.setFillColor(colors.Color(text.red, text.green, text.blue, alpha=0.045))
+            canvas.setFont(display_font, min(104, width * 0.17))
+            canvas.drawRightString(width - 0.55 * inch, 0.72 * inch, system["name"].upper())
+        elif cover_variant == "rule-stack":
+            canvas.setFillColor(text)
+            canvas.rect(width - 2.35 * inch, 0.92 * inch, 1.8 * inch, 5, stroke=0, fill=1)
+            canvas.rect(width - 1.72 * inch, 0.7 * inch, 1.17 * inch, 5, stroke=0, fill=1)
+            canvas.setFillColor(surface)
+            canvas.rect(width - 1.15 * inch, 0.48 * inch, 0.6 * inch, 5, stroke=0, fill=1)
+        else:
+            canvas.setFillColor(colors.Color(text.red, text.green, text.blue, alpha=0.055))
+            canvas.setFont(display_font, min(190, width * 0.31))
+            canvas.drawRightString(width - 0.55 * inch, 0.7 * inch, "01")
+            canvas.setFillColor(text)
+            canvas.rect(width - 1.62 * inch, 0.64 * inch, 1.05 * inch, 5, stroke=0, fill=1)
+            canvas.setFillColor(surface)
+            canvas.rect(width - 1.02 * inch, 0.47 * inch, 0.45 * inch, 5, stroke=0, fill=1)
+
     def decorate(canvas: Any, doc: Any) -> None:
         canvas.saveState()
         canvas.setFillColor(background)
@@ -421,16 +455,15 @@ def create_pdf(
         else:
             canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
         if doc.page == 1:
-            if family == "editorial_narrative":
+            if component_plan["cover"]["placement"] == "none":
+                draw_type_led_motif(canvas)
+            elif family == "editorial_narrative":
                 pass
             elif family == "asymmetric_feature_grid":
-                canvas.setFillColor(brand_dark)
-                canvas.rect(width * 0.57, 0, width * 0.43, height * 0.72, stroke=0, fill=1)
                 if hero_asset and Path(hero_asset["path"]).exists():
+                    canvas.setFillColor(brand_dark)
+                    canvas.rect(width * 0.57, 0, width * 0.43, height * 0.72, stroke=0, fill=1)
                     draw_cover_image(canvas, hero_asset["path"], width * 0.57, 0, width * 0.43, height * 0.72)
-                else:
-                    canvas.setFillColor(accent_secondary)
-                    canvas.rect(width * 0.77, 0, width * 0.23, height * 0.31, stroke=0, fill=1)
             elif family == "numbered_process":
                 canvas.setFillColor(surface)
                 canvas.setFont(display_font, min(170, width * 0.28))
@@ -483,11 +516,20 @@ def create_pdf(
             HRFlowable(width="22%", thickness=4, color=accent, spaceBefore=0, spaceAfter=base * 3, hAlign="LEFT"),
             cover_subtitle,
         ])
-    elif family == "asymmetric_feature_grid":
+    elif family == "asymmetric_feature_grid" and hero_asset:
         story.extend([
             Table([[cover_title, ""]], colWidths=[document.width * 0.54, document.width * 0.46], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM")])),
             Spacer(1, base * 2),
             Table([[cover_subtitle, ""]], colWidths=[document.width * 0.54, document.width * 0.46], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])),
+        ])
+    elif family == "asymmetric_feature_grid":
+        open_cover = ParagraphStyle(
+            "open-asymmetric-cover", parent=styles["cover"], fontSize=min(46, max(40, h1_size)),
+            leading=min(50, max(44, h1_size * 1.06)), alignment=TA_LEFT,
+        )
+        story.extend([
+            Paragraph(_inline_markdown(plan["title"]), open_cover),
+            brand_rule(content_width * 0.2, 5), Spacer(1, base * 3), cover_subtitle,
         ])
     else:
         story.extend([
@@ -514,7 +556,7 @@ def create_pdf(
     story.append(PageBreak())
 
     by_id = {block["id"]: block for block in blocks}
-    component_usage = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 1, "feature_bands": 0}
+    component_usage = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 1, "feature_bands": 0, "editorial_features": 0}
     skipped_cover_heading = False
 
     def add_standard(block: dict[str, str], *, lead: bool = False) -> None:
@@ -625,6 +667,9 @@ def create_pdf(
         if not card_blocks:
             return
         gap = max(8, base * 2)
+        if component_library["numbered-feature-grid"].get("cell_style") == "open":
+            add_editorial_feature_list(card_blocks)
+            return
         feature_recipe = component_library["feature-band"]
         feature_background_hex = feature_recipe["background"]
         asym_lead_style = ParagraphStyle(
@@ -640,6 +685,42 @@ def create_pdf(
         if len(card_blocks) > 1:
             add_card_grid(card_blocks[1:])
         component_usage["cards"] += 1
+
+    def add_editorial_feature_list(card_blocks: list[dict[str, str]]) -> None:
+        """Render features as precise editorial rows instead of generic filled boxes."""
+        rows: list[list[Any]] = []
+        label_style = ParagraphStyle(
+            "feature-label", parent=styles["h3"], fontSize=10.5, leading=13,
+            textColor=text, spaceBefore=0, spaceAfter=3,
+        )
+        detail_style = ParagraphStyle(
+            "feature-detail", parent=styles["body"], fontSize=10, leading=15,
+            textColor=text, spaceAfter=0,
+        )
+        for index, block in enumerate(card_blocks, start=1):
+            label, detail = _feature_parts(block["text"], index)
+            number = Paragraph(f"{index:02d}", ParagraphStyle(
+                f"editorial-number-{index}", parent=styles["number"], fontSize=21, leading=23,
+                textColor=accent, alignment=TA_LEFT,
+            ))
+            copy = [Paragraph(_inline_markdown(label.strip()), label_style)]
+            if detail.strip():
+                copy.append(Paragraph(_inline_markdown(detail.strip()), detail_style))
+            row = Table([[number, copy]], colWidths=[0.52 * inch, content_width - 0.52 * inch], style=TableStyle([
+                ("LINEABOVE", (0, 0), (-1, 0), 0.75, surface),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (0, -1), base * 2),
+                ("RIGHTPADDING", (1, 0), (1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), max(7, base * 1.25)),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), max(7, base * 1.25)),
+            ]))
+            rows.append([row])
+        story.append(Table(rows, colWidths=[content_width], hAlign="LEFT", spaceAfter=base * 2, style=TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ])))
+        component_usage["editorial_features"] += len(card_blocks)
 
     def add_modular_grid(card_blocks: list[dict[str, str]]) -> None:
         if not card_blocks:
@@ -686,20 +767,37 @@ def create_pdf(
         remaining = card_blocks
         if treatment == "feature-band":
             feature_recipe = component_library["feature-band"]
-            feature_style = ParagraphStyle(
-                "brand-feature", parent=styles["module"], fontSize=11.5, leading=16,
+            feature_background_hex = feature_recipe["background"]
+            feature_accent_hex = feature_recipe["accent"]
+            label, detail = _feature_parts(card_blocks[0]["text"], 1)
+            feature_label = ParagraphStyle(
+                "brand-feature-label", parent=styles["h3"], fontSize=11.5, leading=14,
+                textColor=_reportlab_color(feature_recipe["foreground"]), spaceBefore=0, spaceAfter=4,
+            )
+            feature_detail = ParagraphStyle(
+                "brand-feature-detail", parent=styles["module"], fontSize=10.5, leading=15,
                 textColor=_reportlab_color(feature_recipe["foreground"]),
             )
-            feature = BrandedBox(
-                _inline_markdown(card_blocks[0]["text"]), feature_style,
-                background=_reportlab_color(feature_recipe["background"]), border=_reportlab_color(feature_recipe["background"]),
-                border_width=0, radius=min(10, card_radius), padding=max(15, card_padding),
-                accent=_reportlab_color(feature_recipe["accent"]), accent_position="top", min_height=76, shadow=False,
+            number_foreground = _preferred_foreground(feature_accent_hex, palette["text"], "#111111")
+            number_style = ParagraphStyle(
+                "brand-feature-number", parent=styles["number"], fontSize=24, leading=27,
+                textColor=_reportlab_color(number_foreground), alignment=TA_CENTER,
             )
-            story.extend([Table([[feature]], colWidths=[content_width], style=TableStyle([
-                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ])), Spacer(1, gap)])
+            feature_copy: list[Any] = [Paragraph(_inline_markdown(label), feature_label)]
+            if detail:
+                feature_copy.append(Paragraph(_inline_markdown(detail), feature_detail))
+            number_width = 0.82 * inch
+            feature = Table([[Paragraph("01", number_style), feature_copy]], colWidths=[number_width, content_width - number_width], style=TableStyle([
+                ("BACKGROUND", (0, 0), (0, 0), _reportlab_color(feature_accent_hex)),
+                ("BACKGROUND", (1, 0), (1, 0), _reportlab_color(feature_background_hex)),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (0, 0), 8), ("RIGHTPADDING", (0, 0), (0, 0), 8),
+                ("LEFTPADDING", (1, 0), (1, 0), max(16, card_padding)),
+                ("RIGHTPADDING", (1, 0), (1, 0), max(16, card_padding)),
+                ("TOPPADDING", (0, 0), (-1, -1), max(15, card_padding)),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), max(15, card_padding)),
+            ]))
+            story.extend([feature, Spacer(1, gap)])
             remaining = card_blocks[1:]
             component_usage["feature_bands"] += 1
         cells = [
@@ -802,8 +900,6 @@ def create_pdf(
 
     sections = plan["layout"]["sections"]
     for section_index, section in enumerate(sections):
-        if family == "editorial_narrative" and section_index == 3:
-            story.append(PageBreak())
         if family == "product_showcase" and section_index == 3:
             story.append(PageBreak())
         section_blocks = [by_id[block_id] for block_id in section["block_ids"]]
@@ -827,6 +923,8 @@ def create_pdf(
                 add_numbered_steps(pending_cards)
             elif family == "modular_announcement":
                 add_modular_grid(pending_cards)
+            elif section_treatments.get(section["id"]) == "editorial-feature-list":
+                add_editorial_feature_list(pending_cards)
             elif family == "asymmetric_feature_grid":
                 add_asymmetric_grid(pending_cards)
             elif family == "product_showcase":

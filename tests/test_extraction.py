@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+import zipfile
+from pathlib import Path
 from bs4 import BeautifulSoup
 from PIL import Image
 from playwright.sync_api import sync_playwright
@@ -22,6 +24,7 @@ from kolo_design.extractor import (
     _visual_language,
 )
 from kolo_design.reference_evidence import analyze_reference_pdf, reconcile_reference_colors
+from kolo_design.source_extract import _safe_extract, extract_source_brand
 
 
 def test_browser_native_evidence_preserves_css_for_future_renderers() -> None:
@@ -537,3 +540,49 @@ def test_large_product_media_selects_product_led_visual_language() -> None:
     visual = _visual_language(rendered)
     assert visual["primary_mode"] == "product-led"
     assert visual["product_language"] is True
+
+
+def test_source_directory_renders_frontend_without_backend(tmp_path: Path) -> None:
+    source = tmp_path / "site"
+    source.mkdir()
+    (source / "index.html").write_text(
+        """<!doctype html><title>Acme Studio</title><style>
+        body{margin:0;background:#fff;color:#171717;font-family:Arial}main{padding:80px;max-width:900px}
+        h1{font-size:72px}.card{background:#f0e8ff;padding:32px;border-radius:18px}
+        </style><main><h1>Build clearly.</h1><section class='card'>A frontend-only source render.</section></main>""",
+        encoding="utf-8",
+    )
+    workspace = tmp_path / "workspace"
+    result = extract_source_brand(workspace, source_dir=source)
+    system_path = Path(result["design_system"])
+    system = __import__("json").loads(system_path.read_text(encoding="utf-8"))
+    assert system["source"]["kind"] == "source-directory"
+    assert system["source"]["backend_executed"] is False
+    assert system["source"]["external_requests_blocked"] is True
+    assert Path(result["source_screenshot"]).is_file()
+    assert Path(result["source_webpage_pdf"]).is_file()
+
+
+def test_source_archive_rejects_path_traversal(tmp_path: Path) -> None:
+    archive = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("../escape.html", "unsafe")
+    with pytest.raises(ValueError, match="unsafe path"):
+        _safe_extract(archive, tmp_path / "extract")
+
+
+def test_unbuilt_source_gets_disclosed_component_specimen(tmp_path: Path) -> None:
+    source = tmp_path / "react-site"
+    (source / "src").mkdir(parents=True)
+    (source / "package.json").write_text('{"name":"violet-studio"}', encoding="utf-8")
+    (source / "src" / "theme.css").write_text(
+        ":root{--brand:#6d28d9}body{background:#ffffff;color:#171717}.card{background:#f3e8ff}", encoding="utf-8",
+    )
+    (source / "src" / "App.tsx").write_text(
+        "export const App=()=> <main><h1>Make the complex clear</h1><button>Start now</button></main>", encoding="utf-8",
+    )
+    result = extract_source_brand(tmp_path / "workspace", source_dir=source)
+    system = __import__("json").loads(Path(result["design_system"]).read_text(encoding="utf-8"))
+    assert system["source"]["render_mode"] == "source-derived-component-specimen"
+    assert system["source"]["route_fidelity"] == "unverified-source-specimen"
+    assert Path(result["source_webpage_pdf"]).is_file()

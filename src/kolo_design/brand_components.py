@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +64,7 @@ def build_brand_components(system: dict[str, Any]) -> dict[str, Any]:
     )
     monochrome = max(_chroma(accent), _chroma(accent_secondary)) < 0.08
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "brand": {"id": system["id"], "version": system["version"]},
         "preferred_renderer": "reportlab",
         "components": {
@@ -88,6 +90,18 @@ def build_brand_components(system: dict[str, Any]) -> dict[str, Any]:
                 "number_style": "two-digit",
                 "cell_style": "open" if monochrome else "card",
             },
+            "editorial-feature-list": {
+                "kind": "list",
+                "style": "open",
+                "number_style": "two-digit",
+                "separator": "rule",
+                "usage": "structured features without a filled panel",
+            },
+            "statement": {
+                "kind": "statement",
+                "style": "oversized-type",
+                "maximum_per_document": 1,
+            },
             "media-band": {
                 "kind": "image",
                 "fit": "cover",
@@ -110,12 +124,33 @@ def build_brand_components(system: dict[str, Any]) -> dict[str, Any]:
 
 def _component_library(system: dict[str, Any]) -> dict[str, Any]:
     library = system.get("brand_components")
-    if isinstance(library, dict) and library.get("schema_version") == 2:
+    if isinstance(library, dict) and library.get("schema_version") == 3:
         return library
     return build_brand_components(system)
 
 
-def _cover_media(system: dict[str, Any], minimum_density: float) -> dict[str, Any]:
+_STOPWORDS = {
+    "about", "after", "and", "asset", "body", "brand", "create", "design", "document", "format",
+    "from", "image", "into", "kolo", "main", "media", "more", "photo", "source", "that", "the",
+    "their", "this", "using", "visual", "website", "with", "your",
+}
+
+
+def _terms(value: str) -> set[str]:
+    return {term for term in re.findall(r"[a-z0-9]+", value.lower()) if len(term) >= 3 and term not in _STOPWORDS}
+
+
+def _asset_semantics(asset: dict[str, Any]) -> set[str]:
+    values = [asset.get("alt"), asset.get("text_sample")]
+    values.extend(asset.get("keywords") or [])
+    return _terms(" ".join(str(value or "") for value in values))
+
+
+def _cover_media(
+    system: dict[str, Any], minimum_density: float, context: str, *, allow_unlabeled: bool = False,
+) -> dict[str, Any]:
+    context_terms = _terms(context)
+    candidates: list[tuple[float, dict[str, Any]]] = []
     for asset in system.get("assets") or []:
         path = Path(str(asset.get("path", "")))
         if asset.get("kind") != "hero-image" or not path.exists():
@@ -133,19 +168,38 @@ def _cover_media(system: dict[str, Any], minimum_density: float) -> dict[str, An
             placement = "side-panel"
         density = min(width / target_width, height / target_height)
         if density >= minimum_density:
-            return {
+            semantic_terms = _asset_semantics(asset)
+            overlap = context_terms & semantic_terms
+            relevance = len(overlap) / max(1, min(5, len(context_terms)))
+            if semantic_terms and not overlap:
+                continue
+            if not semantic_terms and not allow_unlabeled:
+                continue
+            candidate = {
                 "component": "media-band",
                 "asset_id": asset.get("id"),
                 "placement": placement,
                 "fit": "cover",
                 "focal_point": [0.54, 0.5],
                 "effective_density": round(density, 2),
+                "semantic_relevance": round(relevance, 2),
+                "matched_terms": sorted(overlap),
+                "reason": "content-matched brand media" if overlap else "unlabeled media allowed by explicit image-led prompt",
             }
-    return {"component": "type-led-cover", "asset_id": None, "placement": "none"}
+            candidates.append((relevance * 100 + float(asset.get("score", 0)) / 10 + density, candidate))
+    if candidates:
+        return max(candidates, key=lambda item: item[0])[1]
+    variants = ("index", "rule-stack", "wordmark-scale")
+    variant = variants[int(hashlib.sha256(context.encode("utf-8")).hexdigest()[:8], 16) % len(variants)]
+    return {
+        "component": "type-led-cover", "asset_id": None, "placement": "none",
+        "variant": variant,
+        "reason": "no sufficiently dense, content-relevant brand image",
+    }
 
 
 def select_component_plan(
-    system: dict[str, Any], plan: dict[str, Any], blocks: list[dict[str, str]]
+    system: dict[str, Any], plan: dict[str, Any], blocks: list[dict[str, str]], prompt: str = "",
 ) -> dict[str, Any]:
     """Select a restrained set of brand components for exact document regions."""
     library = _component_library(system)
@@ -154,6 +208,7 @@ def select_component_plan(
     feature_band_used = False
     sections: list[dict[str, Any]] = []
     layout_sections = plan["layout"]["sections"]
+    composition_family = (plan.get("composition") or {}).get("family")
     for index, section in enumerate(layout_sections):
         section_blocks = [by_id[block_id] for block_id in section["block_ids"]]
         bullet_count = sum(block["kind"] == "bullet" for block in section_blocks)
@@ -164,19 +219,26 @@ def select_component_plan(
             components.append("closing-signature")
             treatment = "closing-signature"
         elif bullet_count >= 2:
-            components.append("numbered-feature-grid")
-            treatment = "feature-grid"
-            if not feature_band_used:
+            cell_style = recipes["numbered-feature-grid"].get("cell_style", "card")
+            if cell_style == "open" or composition_family == "editorial_narrative":
+                components.append("editorial-feature-list")
+                treatment = "editorial-feature-list"
+            else:
+                components.append("numbered-feature-grid")
+                treatment = "feature-grid"
+            if not feature_band_used and cell_style != "open" and composition_family != "editorial_narrative":
                 components.append("feature-band")
                 treatment = "feature-band"
                 feature_band_used = True
         sections.append({"section_id": section["id"], "components": components, "treatment": treatment})
     minimum_density = float(recipes["media-band"]["minimum_density"])
+    context = " ".join([prompt, str(plan.get("title", "")), str(plan.get("subtitle", "")), *(block["text"] for block in blocks[:12])])
+    explicit_image_prompt = bool(re.search(r"\b(image|photo|photographic|showcase|visual)\b", prompt, re.I))
     return {
         "schema_version": 1,
         "preferred_renderer": library.get("preferred_renderer", "reportlab"),
         "library": library,
-        "cover": _cover_media(system, minimum_density),
+        "cover": _cover_media(system, minimum_density, context, allow_unlabeled=explicit_image_prompt),
         "sections": sections,
     }
 

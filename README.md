@@ -2,7 +2,7 @@
 
 Kolo Create is one Kolo skill with two reusable stages:
 
-1. Turn a public website into a versioned design system.
+1. Turn a public website or renderable frontend source into a versioned design system.
 2. Turn source text plus a design prompt into a verified PDF using that exact design-system version.
 
 The second stage never recrawls or mutates the brand. This keeps artifacts reproducible while presenting one coherent skill to the user.
@@ -15,6 +15,12 @@ uv sync --frozen
 uv run kolo-design create design-system \
   --url "https://kolo.ai" \
   --name "Kolo" \
+  --workspace "./data"
+
+# Or ingest a frontend without executing its build or backend:
+uv run kolo-design create design-system \
+  --source-dir "../my-site" \
+  --name "My Site" \
   --workspace "./data"
 
 uv run kolo-design pdf create \
@@ -30,11 +36,20 @@ uv run kolo-design pdf compare \
   --output-dir "./output/kolo-create-comparison"
 ```
 
-Website extraction prefers Chromium-rendered computed styles, dismisses common consent overlays, captures a clean source screenshot and screen-media source-webpage PDF, and falls back to bounded static HTML/CSS extraction. The source PDF uses backgrounds, bounded lazy-content loading, and a frozen visual state. A low-resolution raster sanity check grades the export and tests whether proposed semantic colors actually appear in either rendered artifact. Unsupported secondary accents collapse to the primary accent, while unsupported dark roles can be replaced only by a visibly supported dark candidate. The browser path can recover sites that reject the lightweight HTTP client while still rejecting error pages. Palette scoring distinguishes page, surface, text, primary accent, secondary accent, and dark brand-support roles; derives transparent-root canvases from dominant painted regions; rejects browser-default and unpainted stylesheet colors; and excludes detected consent or modal overlays. Logo discovery prefers the visible header wordmark—including text-rendered brand links—over social-preview artwork, calls to action are ranked by semantic purpose rather than frequency alone, and large visible hero assets are saved for reuse. Major selections retain confidence and provenance. It rejects private-network targets and validates every HTTP redirect.
+Website extraction prefers Chromium-rendered computed styles, dismisses common consent overlays, captures a clean source screenshot and screen-media source-webpage PDF, and falls back to bounded static HTML/CSS extraction. Frontend source ingestion accepts a local directory, ZIP, or public HTTPS GitHub repository and renders an existing `index.html`, `dist`, `build`, `out`, `public`, or Storybook static output on loopback. If no static route exists, it renders a deterministic source-derived component specimen and records route fidelity as unverified. It never runs package scripts or backend code, and blocks external requests during the source render. The source PDF uses backgrounds, bounded lazy-content loading, and a frozen visual state. A low-resolution raster sanity check grades the export and tests whether proposed semantic colors actually appear in either rendered artifact. Unsupported secondary accents collapse to the primary accent, while unsupported dark roles can be replaced only by a visibly supported dark candidate. The browser path can recover sites that reject the lightweight HTTP client while still rejecting error pages. Palette scoring distinguishes page, surface, text, primary accent, secondary accent, and dark brand-support roles; derives transparent-root canvases from dominant painted regions; rejects browser-default and unpainted stylesheet colors; and excludes detected consent or modal overlays. Logo discovery prefers the visible header wordmark—including text-rendered brand links—over social-preview artwork, calls to action are ranked by semantic purpose rather than frequency alone, and large visible media is stored with semantic labels, dimensions, role, and provenance. Major selections retain confidence and provenance. It rejects private-network website targets and validates every HTTP redirect.
 
 The resulting design system includes component variants for heading hierarchy, buttons, cards, navigation, and section surfaces, plus captured hero imagery, imagery proportions, borders, radii, shadows, padding, and alignment. It also records portable font categories and visual-language signals including media coverage, viewport density, dominant alignment, overlay count, and an observed presentation mode—including product-led sites. Browser-native evidence preserves bounded CSS custom properties, font-face declarations, breakpoints, grid/flex primitives, and background treatments alongside the normalized cross-renderer tokens. A separate `brand-components.json` turns that evidence into portable recipes for section markers, feature bands, grids, media treatments, and closing signatures. Secondary brand colors must clear an evidence threshold before they enter multi-color components; monochrome brands receive an open, rule-led grid instead of generic filled cards.
 
-PDF creation compiles source Markdown into stable content-block IDs and an inspectable, format-independent layout plan. A code-owned composition selector combines source structure with saved visual-language evidence, then chooses an editorial narrative, asymmetric feature grid, numbered process, modular announcement, or product showcase. A second deterministic pass assigns exact brand-component treatments to the cover and each section, limits prominent motifs to avoid repetition, and rejects raster image placements that would require enlargement. Both renderers execute this shared component plan. ReportLab remains the preferred renderer while the HTML/CSS implementation matures.
+PDF creation compiles source Markdown into stable content-block IDs and an inspectable, format-independent layout plan. A code-owned composition selector combines source structure with saved visual-language evidence, then chooses an editorial narrative, asymmetric feature grid, numbered process, modular announcement, or product showcase. A second deterministic pass assigns exact brand-component treatments to the cover and each section, limits prominent motifs to avoid repetition, and rejects raster image placements that would require enlargement. Cover media must also match the document topic; unrelated site photography falls back to a type-led cover. Monochrome systems use numbered editorial feature rows instead of a generic dark slab. Both renderers execute the shared plan, with ReportLab remaining preferred while the HTML/CSS implementation matures.
+
+Source inputs are mutually exclusive:
+
+```sh
+kolo-design create design-system --url "https://example.com" --workspace ./data
+kolo-design create design-system --repo-url "https://github.com/org/site" --workspace ./data
+kolo-design create design-system --source-dir "../site" --workspace ./data
+kolo-design create design-system --source-archive "../site.zip" --workspace ./data
+```
 
 The comparison command evaluates two renderers without paying for two planning calls. It produces the current ReportLab PDF and a candidate HTML/CSS document and PDF from one validated plan, runs DOM overflow and grid-alignment checks, and generates side-by-side page previews plus a comparison manifest. ReportLab remains the default while repeated review determines which browser patterns deserve promotion.
 

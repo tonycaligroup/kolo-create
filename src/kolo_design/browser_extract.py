@@ -258,17 +258,25 @@ def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
     return None
 
 
-def browser_snapshot(url: str) -> dict[str, Any] | None:
+def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] | None:
     executable = _browser_executable()
     if not executable:
         return None
-    assert_public_url(url)
+    if not allow_local:
+        assert_public_url(url)
     with sync_playwright() as runtime:
         browser = runtime.chromium.launch(executable_path=executable, headless=True, args=["--disable-dev-shm-usage"])
         context = browser.new_context(viewport={"width": 1440, "height": 1100}, device_scale_factor=2)
 
         def route_request(route: Any) -> None:
-            if _literal_private_host(route.request.url):
+            request_url = route.request.url
+            if allow_local:
+                host = (urlparse(request_url).hostname or "").lower()
+                if urlparse(request_url).scheme in {"data", "blob", "about"} or host in {"127.0.0.1", "localhost", "::1"}:
+                    route.continue_()
+                else:
+                    route.abort()
+            elif _literal_private_host(request_url):
                 route.abort()
             else:
                 route.continue_()
@@ -283,7 +291,8 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
                 pass
             page.wait_for_timeout(1200)
             _freeze_motion(page)
-            assert_public_url(page.url)
+            if not allow_local:
+                assert_public_url(page.url)
             overlay_actions = _dismiss_overlays(page)
             visible_logo = _visible_logo(page, page.url)
             snapshot = page.evaluate(

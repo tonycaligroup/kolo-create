@@ -84,7 +84,7 @@ def _render_section(
 ) -> tuple[str, dict[str, int]]:
     skip_ids = skip_ids or set()
     blocks = [by_id[block_id] for block_id in section["block_ids"] if block_id not in skip_ids]
-    counts = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 0, "feature_bands": 0}
+    counts = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 0, "feature_bands": 0, "editorial_features": 0}
     if closing:
         heading = next((block for block in blocks if block["kind"].startswith("heading")), None)
         action = next((block for block in blocks if block["kind"] == "action"), None)
@@ -115,10 +115,14 @@ def _render_section(
         cards = []
         for index, block in enumerate(pending_cards):
             extra = " feature-card brand-feature-band" if treatment == "feature-band" and index == 0 else ""
+            if treatment == "editorial-feature-list":
+                extra += " editorial-feature"
             cards.append(f'<div class="card{extra}"><div>{_inline_html(block["text"])}</div></div>')
-        rendered.append(f'<div class="card-grid">{"".join(cards)}</div>')
+        grid_class = "card-grid editorial-feature-list" if treatment == "editorial-feature-list" else "card-grid"
+        rendered.append(f'<div class="{grid_class}">{"".join(cards)}</div>')
         counts["cards"] += len(pending_cards)
         counts["feature_bands"] += int(treatment == "feature-band")
+        counts["editorial_features"] += len(pending_cards) if treatment == "editorial-feature-list" else 0
         pending_cards.clear()
 
     bullet_count = sum(block["kind"] == "bullet" for block in blocks)
@@ -183,7 +187,10 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
     grid_cell_style = component_library["numbered-feature-grid"].get("cell_style", "card")
     logo = _asset_uri(system, "logo")
     cover_component = component_plan["cover"]
-    hero_asset = next((asset for asset in system.get("assets") or [] if asset.get("id") == cover_component.get("asset_id")), None)
+    cover_asset_id = cover_component.get("asset_id")
+    hero_asset = next(
+        (asset for asset in system.get("assets") or [] if cover_asset_id and asset.get("id") == cover_asset_id), None
+    )
     hero = Path(str(hero_asset["path"])).resolve().as_uri() if hero_asset and Path(str(hero_asset["path"])).exists() else None
     hero_layout = {"bottom-band": "landscape", "side-panel": "portrait", "none": "none"}[cover_component["placement"]]
     hero_markup = (
@@ -206,7 +213,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
             cover_source_id = opening_callout["id"]
     skip_ids = {cover_source_id} if cover_source_id else set()
     groups = _page_groups(plan["layout"]["sections"])
-    usage = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 1, "feature_bands": 0}
+    usage = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 1, "feature_bands": 0, "editorial_features": 0}
     body_pages = []
     for page_index, group in enumerate(groups, 1):
         section_markup = []
@@ -286,6 +293,9 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       .card strong {{ font-weight:700; }}
       .family-asymmetric_feature_grid .feature-card,.family-product_showcase .feature-card {{ grid-column:1/-1; min-height:76px; font-size:15px; }}
       .brand-feature-band {{ background:var(--feature-bg); color:var(--feature-text); border:0; border-top:5px solid var(--feature-accent); padding:18px 20px; }}
+      .editorial-feature-list {{ grid-template-columns:1fr; gap:0; counter-reset:features; }}
+      .editorial-feature {{ counter-increment:features; display:grid; grid-template-columns:52px 1fr; align-items:start; padding:16px 0; border:0; border-top:1px solid var(--surface); border-radius:0; background:transparent; color:var(--text); }}
+      .editorial-feature::before {{ content:counter(features, decimal-leading-zero); color:var(--accent); font:500 20px/1 var(--display); }}
       .grid-open .card:not(.brand-feature-band) {{ min-height:64px; align-items:flex-start; padding:15px 0; border:0; border-top:1px solid var(--surface); border-radius:0; background:transparent; color:var(--text); }}
       .family-editorial_narrative .card-grid {{ gap:0 24px; }}
       .family-editorial_narrative .card {{ background:transparent; color:var(--text); border:0; border-top:1px solid var(--surface); border-radius:0; padding:13px 0; min-height:58px; }}
@@ -345,7 +355,7 @@ def create_html_pdf(
     removed_emoji_count += title_removed + subtitle_removed
     plan["composition"] = select_composition(system, plan, blocks, prompt)
     validate_composition(plan["composition"])
-    plan["component_plan"] = select_component_plan(system, plan, blocks)
+    plan["component_plan"] = select_component_plan(system, plan, blocks, prompt)
     validate_component_plan(plan["component_plan"])
     markup, component_usage = _document_html(system, plan, blocks)
 

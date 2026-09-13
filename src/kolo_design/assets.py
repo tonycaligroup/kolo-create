@@ -17,6 +17,28 @@ def raster_dimensions(path: Path) -> tuple[int, int] | None:
         return None
 
 
+def _usable_logo_raster(path: Path, width: int, height: int, asset: dict[str, Any]) -> bool:
+    """Reject favicon-like and visually empty rasters before they reach a cover."""
+    source_hint = " ".join(str(asset.get(key, "")) for key in ("source", "source_url", "provenance")).lower()
+    if 0.82 <= width / max(1, height) <= 1.22 and any(
+        marker in source_hint for marker in ("favicon", "apple-touch", "app-icon", "manifest")
+    ):
+        return False
+    try:
+        with PILImage.open(path) as source:
+            rgba = source.convert("RGBA")
+            alpha = rgba.getchannel("A")
+            bbox = alpha.getbbox()
+            if bbox is None:
+                return False
+            visible_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            if visible_area / max(1, width * height) < 0.015:
+                return False
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def select_logo_asset(
     system: dict[str, Any],
     *,
@@ -42,6 +64,8 @@ def select_logo_asset(
         if not dimensions:
             continue
         width, height = dimensions
+        if not _usable_logo_raster(path, width, height, asset):
+            continue
         scale = min(max_width / width, max_height / height)
         rendered_width, rendered_height = width * scale, height * scale
         density = min(width / rendered_width, height / rendered_height)

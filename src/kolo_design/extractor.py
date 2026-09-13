@@ -16,6 +16,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 from PIL import Image, ImageColor
 
+from .assets import raster_dimensions
 from .browser_extract import browser_snapshot, rasterize_svg
 from .brand_components import build_brand_components
 from .contracts import validate_design_system
@@ -819,10 +820,10 @@ def _save_best_logo(
     return saved
 
 
-def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: int = 2) -> list[dict[str, Any]]:
+def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: int = 6) -> list[dict[str, Any]]:
     if not rendered:
         return []
-    ranked: list[tuple[float, str]] = []
+    ranked: list[tuple[float, str, dict[str, Any]]] = []
     for element in rendered.get("elements", []):
         if not _in_primary_view(element):
             continue
@@ -836,10 +837,10 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
         urls.extend(re.findall(r"url\([\"']?([^\"')]+)", background_image))
         for value in urls:
             if value.startswith(("http://", "https://")):
-                ranked.append((area, value))
+                ranked.append((area, value, element))
     saved: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for area, url in sorted(ranked, reverse=True):
+    for area, url, element in sorted(ranked, key=lambda item: item[0], reverse=True):
         if url in seen:
             continue
         seen.add(url)
@@ -852,12 +853,24 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
                 suffix = ".png" if "png" in content_type else ".jpg"
             target = asset_dir / f"hero-{len(saved) + 1}{suffix}"
             atomic_write(target, payload)
+            dimensions = raster_dimensions(target)
+            width, height = dimensions or (0, 0)
+            semantic_text = " ".join(
+                str(element.get(key, "")) for key in ("alt", "text_sample")
+            ).strip()
             saved.append({
                 "id": f"hero-{len(saved) + 1}", "kind": "hero-image", "path": str(target),
                 "source_url": final_url, "source": "browser-rendered-large-media",
                 "score": round(area * 100, 2), "confidence": round(min(0.96, 0.7 + area / 4), 2),
                 "provenance": "largest non-overlay media visible in sampled viewport",
                 "sha256": sha256_bytes(payload), "media_type": content_type.split(";")[0],
+                "alt": str(element.get("alt", ""))[:240],
+                "text_sample": str(element.get("text_sample", ""))[:240],
+                "role": str((element.get("semantic") or {}).get("region", "body")),
+                "keywords": sorted({word.lower() for word in re.findall(r"[A-Za-z0-9]+", semantic_text) if len(word) >= 3})[:20],
+                "pixel_width": width, "pixel_height": height,
+                "aspect_ratio": round(width / max(1, height), 3),
+                "orientation": "landscape" if width >= height * 1.2 else "portrait" if height >= width * 1.2 else "square",
             })
             if len(saved) >= limit:
                 break
@@ -917,14 +930,22 @@ def _specimen(system: dict[str, Any]) -> bytes:
 <body><main><p class=\"eyebrow\">Extracted design language · v{system['version']}</p><h1>{html_module.escape(system['name'])}</h1><div class=\"grid\">{swatches}</div><h2>Component language</h2><div class=\"components\"><div class=\"card\"><p class=\"eyebrow\">Reusable card</p><h3>Structure from observed evidence</h3><p>Typography, surface, spacing, radius, border, and shadow treatments are stored as reusable recipes.</p></div><div><button class=\"primary\">Primary action</button><button class=\"secondary\">Secondary</button></div></div></main></body></html>""".encode()
 
 
-def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[str, Any]:
-    rendered = None
-    try:
-        candidate = browser_snapshot(url)
-        if candidate and (candidate.get("response_status") is None or int(candidate["response_status"]) < 400):
-            rendered = candidate
-    except Exception:
-        rendered = None
+def extract_brand(
+    url: str,
+    workspace: Path,
+    name: str | None = None,
+    *,
+    rendered_override: dict[str, Any] | None = None,
+    source_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    rendered = rendered_override
+    if rendered is None:
+        try:
+            candidate = browser_snapshot(url)
+            if candidate and (candidate.get("response_status") is None or int(candidate["response_status"]) < 400):
+                rendered = candidate
+        except Exception:
+            rendered = None
     if rendered:
         final_url = rendered["url"]
         html_bytes = rendered["html"].encode("utf-8")
@@ -1033,7 +1054,10 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
         "version": "1.0.0",
         "name": brand_name,
         "created_at": datetime.now(UTC).isoformat(),
-        "source": {"url": final_url, "html_sha256": sha256_bytes(html_bytes), "stylesheets": stylesheet_urls},
+        "source": {
+            "url": final_url, "html_sha256": sha256_bytes(html_bytes), "stylesheets": stylesheet_urls,
+            **(source_metadata or {}),
+        },
         "tokens": {
             "colors": colors,
             "typography": {

@@ -10,6 +10,7 @@ from .html_designer import compare_pdf_renderers, create_html_pdf
 from .network import FetchError
 from .pdf_designer import create_pdf
 from .planner import DeterministicPlanner, OpenAICompatiblePlanner
+from .source_extract import extract_source_brand
 
 
 def parser() -> argparse.ArgumentParser:
@@ -17,8 +18,12 @@ def parser() -> argparse.ArgumentParser:
     commands = root.add_subparsers(dest="command", required=True)
     create_system = commands.add_parser("create", help="Create a reusable design system from a website")
     create_commands = create_system.add_subparsers(dest="create_command", required=True)
-    design_system = create_commands.add_parser("design-system", help="Create a design system from a public website")
-    design_system.add_argument("--url", required=True)
+    design_system = create_commands.add_parser("design-system", help="Create a design system from a website or frontend source")
+    source = design_system.add_mutually_exclusive_group(required=True)
+    source.add_argument("--url", help="Public website URL")
+    source.add_argument("--repo-url", help="Public HTTPS GitHub repository URL")
+    source.add_argument("--source-dir", type=Path, help="Local frontend source directory")
+    source.add_argument("--source-archive", type=Path, help="Local ZIP containing frontend source")
     design_system.add_argument("--workspace", type=Path, required=True)
     design_system.add_argument("--name")
     design_system.add_argument(
@@ -52,7 +57,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         if args.command == "create":
-            result = extract_brand(args.url, args.workspace, args.name)
+            if args.url:
+                result = extract_brand(args.url, args.workspace, args.name)
+            else:
+                result = extract_source_brand(
+                    args.workspace, args.name, source_dir=args.source_dir,
+                    source_archive=args.source_archive, repo_url=args.repo_url,
+                )
             example_output = args.example_output or (
                 args.workspace.resolve() / "examples" / f"{result['brand_id']}-kolo-create.pdf"
             )

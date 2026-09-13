@@ -21,6 +21,7 @@ from kolo_design.pdf_designer import (
     _brand_dark,
     _cover_alignment,
     _eyebrow_color,
+    _feature_parts,
     _legible_foreground,
     _paired_grid_rows,
     _preferred_foreground,
@@ -59,15 +60,68 @@ def test_html_cover_uses_hero_image_once(tmp_path: Path) -> None:
     hero = tmp_path / "hero.jpg"
     PILImage.new("RGB", (1200, 700), "navy").save(hero)
     system = read_json(FIXTURES / "design-system.json")
-    system["assets"] = [{"kind": "hero-image", "path": str(hero)}]
+    system["assets"] = [{"id": "launch-hero", "kind": "hero-image", "path": str(hero), "alt": "Launch product showcase"}]
     content = "# Launch\n\nA concise introduction."
     blocks = source_blocks(content)
     plan = DeterministicPlanner().plan(content, "Create a product showcase", blocks)
     plan["composition"] = select_composition(system, plan, blocks, "Create a product showcase")
+    plan["component_plan"] = select_component_plan(system, plan, blocks, "Create a product showcase")
     markup, _ = _document_html(system, plan, blocks)
     assert markup.count(hero.resolve().as_uri()) == 1
     assert 'class="hero-frame"' in markup
     assert 'class="page cover hero-landscape"' in markup
+
+
+def test_cover_rejects_unrelated_brand_media(tmp_path: Path) -> None:
+    hero = tmp_path / "football.jpg"
+    PILImage.new("RGB", (1600, 900), "navy").save(hero)
+    system = read_json(FIXTURES / "design-system.json")
+    system["assets"] = [{
+        "id": "football", "kind": "hero-image", "path": str(hero),
+        "alt": "football athlete on the field", "keywords": ["football", "athlete"],
+    }]
+    content = "# Seller Hub announcement\n\nManage marketplace inventory and orders."
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Create an operational announcement", blocks)
+    selected = select_component_plan(system, plan, blocks, "Create an operational announcement")
+    assert selected["cover"]["component"] == "type-led-cover"
+    assert selected["cover"]["asset_id"] is None
+
+
+def test_cover_ignores_generic_metadata_overlap(tmp_path: Path) -> None:
+    hero = tmp_path / "travel.jpg"
+    PILImage.new("RGB", (1400, 900), "black").save(hero)
+    system = read_json(FIXTURES / "design-system.json")
+    system["assets"] = [{
+        "id": "travel", "kind": "hero-image", "path": str(hero),
+        "alt": "Travel collage with taxis and luggage", "role": "main",
+        "source_url": "https://cdn.example.com/media.jpg?format=webp",
+    }]
+    content = "# Kolo Create\n\nDesign documents and formats from one brand system."
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Create a visual brand document", blocks)
+    selected = select_component_plan(system, plan, blocks, "Create a visual brand document")
+    assert selected["cover"]["component"] == "type-led-cover"
+
+
+def test_monochrome_sections_use_open_editorial_features() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    system["tokens"]["colors"] = {
+        "background": "#FFFFFF", "surface": "#E5E5E5", "text": "#000000",
+        "accent": "#000000", "accent_secondary": "#000000",
+    }
+    content = "# Title\n\n## Capabilities\n\n- Source: Pull from a website or repository\n- System: Save the reusable language"
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Explain the product", blocks)
+    selected = select_component_plan(system, plan, blocks, "Explain the product")
+    section = next(item for item in selected["sections"] if item["treatment"] == "editorial-feature-list")
+    assert "feature-band" not in section["components"]
+
+
+def test_editorial_feature_parser_preserves_bold_label_boundary() -> None:
+    assert _feature_parts("**01. Clear priorities:** See the work that matters.", 1) == (
+        "Clear priorities", "See the work that matters.",
+    )
 
 
 def test_brand_component_plan_is_restrained_and_shared() -> None:
@@ -171,6 +225,14 @@ def test_create_design_system_command_contract() -> None:
     assert args.example_output == Path("./example.pdf")
 
 
+def test_create_design_system_source_contract() -> None:
+    args = parser().parse_args([
+        "create", "design-system", "--source-archive", "./site.zip", "--workspace", "./data",
+    ])
+    assert args.source_archive == Path("./site.zip")
+    assert args.url is None
+
+
 def test_compare_renderers_command_contract() -> None:
     args = parser().parse_args([
         "pdf", "compare", "--system", "./system.json", "--content", "./content.md",
@@ -240,6 +302,33 @@ def test_create_design_system_automatically_renders_default_first_example(
     assert captured["system"] == system_path
     assert captured["output"] == tmp_path / "examples" / "sample-brand-kolo-create.pdf"
     assert captured["content"].name == "kolo-create-explainer.md"
+
+
+def test_source_design_system_also_renders_default_first_example(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "frontend"
+    system_path = tmp_path / "design-system.json"
+    monkeypatch.setattr(
+        cli_module,
+        "extract_source_brand",
+        lambda workspace, name, **inputs: {
+            "status": "succeeded", "design_system": str(system_path), "brand_id": "source-brand",
+        },
+    )
+    captured: dict[str, Path] = {}
+
+    def fake_create_pdf(system: Path, content: Path, prompt: str, output: Path, planner: object) -> dict[str, str]:
+        captured.update(system=system, output=output)
+        return {"status": "succeeded", "pdf": str(output)}
+
+    monkeypatch.setattr(cli_module, "create_pdf", fake_create_pdf)
+    status = cli_module.main([
+        "create", "design-system", "--source-dir", str(source), "--workspace", str(tmp_path),
+    ])
+    assert status == 0
+    assert captured["system"] == system_path
+    assert captured["output"] == tmp_path / "examples" / "source-brand-kolo-create.pdf"
 
 
 def test_composition_uses_brand_and_content_signals() -> None:

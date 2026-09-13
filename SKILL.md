@@ -1,8 +1,8 @@
 ---
 name: kolo-create
-description: Create a reusable design system from a public website, then use that saved system with user-supplied text and a design prompt to produce a polished, verified PDF. Use when a user wants to capture brand language, generate branded documents, refresh a saved brand, or reuse a brand across new PDFs.
+description: Create a reusable design system from a public website or renderable frontend source, then use that saved system with user-supplied text and a design prompt to produce a polished, verified PDF. Use when a user wants to capture brand language, generate branded documents, refresh a saved brand, or reuse a brand across new PDFs.
 metadata:
-  version: "0.10.1"
+  version: "0.12.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.10.1
+version: 0.12.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: website extraction creates a reusable versioned design system; PDF generation consumes an exact saved version without recrawling or modifying it.
@@ -22,6 +22,8 @@ When the user supplies a public website, run:
 ```sh
 uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design create design-system --url "<public website>" --name "<brand name>" --workspace "/home/node/.openclaw/kolo-create-data"
 ```
+
+For frontend source, replace `--url` with exactly one of `--repo-url "https://github.com/org/public-repo"`, `--source-dir "/path/to/source"`, or `--source-archive "/path/to/source.zip"`. Prefer an existing static entry (`index.html`, `dist`, `build`, `out`, `public`, or `storybook-static`). If none exists, render a deterministic source-derived component specimen and clearly disclose that route fidelity is unverified. Never execute package scripts, framework servers, or backend code.
 
 Return the design-system JSON, separate brand-components library, specimen, source screenshot, screen-media source-webpage PDF, source-webpage quality report, brand ID, evidence counts, and the first branded example PDF. The source PDF is the cleaned Chromium page Kolo analyzed and is retained as human-reviewable evidence. The example is a canonical explanation of Kolo Create rendered in the new system; it makes the extraction immediately testable while remaining a separate PDF-generation stage internally. Explain that observed values are evidence while semantic token roles and component recipes are deterministic candidates.
 
@@ -41,7 +43,7 @@ When the user supplies or selects a saved design system plus source text and a d
 uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design pdf create --system "<design-system.json>" --content "<source.txt-or-md>" --prompt "<design direction>" --output "<result.pdf>"
 ```
 
-Return the PDF, inspectable layout plan, previews, quality report, page count, component-usage counts, selected composition family with its evidence, explicit brand-component placements, and exact design-system version. The deterministic planner preserves Markdown structure, assigns stable IDs to every source block, and recognizes explicit style, title, page-size, and orientation direction. A separate deterministic composition selector combines content structure with saved visual-language signals and chooses among editorial narrative, asymmetric feature grid, numbered process, modular announcement, and product showcase families. A component planner then assigns exact cover media geometry, section markers, restrained feature bands, grids, and closing signatures. Product showcase and media-led asymmetric covers reuse captured hero media only when the asset has enough effective resolution. Explicit composition directions override automatic selection.
+Return the PDF, inspectable layout plan, previews, quality report, page count, component-usage counts, selected composition family with its evidence, explicit brand-component placements, and exact design-system version. The deterministic planner preserves Markdown structure, assigns stable IDs to every source block, and recognizes explicit style, title, page-size, and orientation direction. A separate deterministic composition selector combines content structure with saved visual-language signals and chooses among editorial narrative, asymmetric feature grid, numbered process, modular announcement, and product showcase families. A component planner then assigns exact cover media geometry, section markers, restrained feature bands, grids, and closing signatures. Reuse captured hero media only when it has enough effective resolution and its saved semantics match the requested document; otherwise use a type-led cover. Prefer open editorial feature rows for monochrome brands. Explicit composition directions override automatic selection.
 
 After a successful PDF-creation command, follow **Deliver generated PDFs** below for the returned PDF.
 
@@ -87,7 +89,7 @@ Do not use a plain `MEDIA:` directive: Kolo does not reliably render it as a cha
 
 ## Safety and quality boundaries
 
-- Accept public HTTP(S) websites only; validate every redirect and cap every response while streaming.
+- Accept public HTTP(S) websites only; validate every redirect and cap every response while streaming. Source ingestion separately accepts a local directory, bounded ZIP, or public HTTPS GitHub repository.
 - If both browser and bounded HTTP retrieval fail, return the focused access question and recommend one alternate public landing-page URL; do not loop over guessed paths.
 - Block private, loopback, link-local, and metadata addresses.
 - Prefer browser-rendered computed styles and use bounded static extraction as fallback; report which mode ran.
