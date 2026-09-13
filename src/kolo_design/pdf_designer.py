@@ -303,10 +303,10 @@ def create_pdf(
                 canvas.setFont(display_font, min(170, width * 0.28))
                 canvas.drawRightString(width - 0.45 * inch, 0.8 * inch, "01")
             else:
-                canvas.setFillColor(surface)
-                canvas.rect(0, 0, width, height * 0.27, stroke=0, fill=1)
+                canvas.setFillColor(accent)
+                canvas.circle(width - 0.82 * inch, 0.82 * inch, 0.48 * inch, stroke=0, fill=1)
                 canvas.setFillColor(accent_secondary)
-                canvas.rect(width * 0.72, 0, width * 0.28, height * 0.27, stroke=0, fill=1)
+                canvas.circle(width - 0.42 * inch, 0.43 * inch, 0.2 * inch, stroke=0, fill=1)
         if doc.page > 1:
             canvas.setFont(label_font, 7.5)
             canvas.setFillColor(text)
@@ -319,22 +319,11 @@ def create_pdf(
     cover_title = Paragraph(_inline_markdown(plan["title"]), styles["cover"])
     cover_subtitle = Paragraph(_inline_markdown(plan["subtitle"]), styles["subtitle"])
     if family == "modular_announcement":
-        cover_foreground = _legible_foreground(palette["accent"], palette["text"])
-        modular_cover = ParagraphStyle("modular-cover", parent=styles["cover"], textColor=_reportlab_color(cover_foreground), fontSize=min(44, h1_size), leading=min(48, h1_size * 1.08))
-        modular_subtitle = ParagraphStyle("modular-subtitle", parent=styles["subtitle"], textColor=_reportlab_color(cover_foreground))
-        panel = Table(
-            [[Paragraph(_inline_markdown(plan["title"]), modular_cover)], [Paragraph(_inline_markdown(plan["subtitle"]), modular_subtitle)]],
-            colWidths=[document.width * 0.82],
-            style=TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), accent),
-                ("LEFTPADDING", (0, 0), (-1, -1), section_padding),
-                ("RIGHTPADDING", (0, 0), (-1, -1), section_padding),
-                ("TOPPADDING", (0, 0), (-1, 0), section_padding),
-                ("BOTTOMPADDING", (0, -1), (-1, -1), section_padding),
-            ]),
-            hAlign="LEFT",
-        )
-        story.extend([panel, Spacer(1, base * 3)])
+        story.extend([
+            cover_title,
+            HRFlowable(width="22%", thickness=4, color=accent, spaceBefore=0, spaceAfter=base * 3, hAlign="LEFT"),
+            cover_subtitle,
+        ])
     elif family == "asymmetric_feature_grid":
         story.extend([
             Table([[cover_title, ""]], colWidths=[document.width * 0.54, document.width * 0.46], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM")])),
@@ -372,18 +361,10 @@ def create_pdf(
                     Paragraph(safe, styles["h2"]),
                 ])
             elif family == "modular_announcement":
-                label_foreground = _legible_foreground(palette["accent"], palette["text"])
-                label_style = ParagraphStyle("module-heading", parent=styles["h2"], textColor=_reportlab_color(label_foreground), spaceBefore=0, spaceAfter=0)
                 story.extend([
                     CondPageBreak(145),
-                    Table([[Paragraph(safe, label_style)]], colWidths=[document.width], style=TableStyle([
-                        ("BACKGROUND", (0, 0), (-1, -1), accent),
-                        ("LEFTPADDING", (0, 0), (-1, -1), section_padding),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), section_padding),
-                        ("TOPPADDING", (0, 0), (-1, -1), base * 2),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), base * 2),
-                    ])),
-                    Spacer(1, base * 1.5),
+                    HRFlowable(width="18%", thickness=4, color=accent_secondary, spaceBefore=base * 2.5, spaceAfter=base * 1.5, hAlign="LEFT"),
+                    Paragraph(safe, styles["h2"]),
                 ])
             else:
                 story.extend([
@@ -400,8 +381,10 @@ def create_pdf(
             component_usage["standard_blocks"] += 1
         elif kind == "callout":
             callout_radius = 0 if family == "numbered_process" else card_radius
+            callout_background = background if family == "modular_announcement" else section_background
+            callout_border_width = 0.8 if family == "modular_announcement" else 0
             story.extend([
-                BrandedBox(safe, styles["callout"], background=section_background, border=surface, border_width=0,
+                BrandedBox(safe, styles["callout"], background=callout_background, border=surface, border_width=callout_border_width,
                            radius=callout_radius, padding=section_padding, accent=accent),
                 Spacer(1, base * 2),
             ])
@@ -471,21 +454,15 @@ def create_pdf(
         if not card_blocks:
             return
         gap = max(7, base * 1.5)
-        columns = 1 if document.width < 430 else (3 if len(card_blocks) >= 3 else 2)
+        columns = 1 if document.width < 430 else 2
         cell_width = (document.width - gap * (columns - 1)) / columns
-        module_backgrounds = [surface, section_background, accent_secondary]
         cells: list[Any] = []
         for index, block in enumerate(card_blocks):
-            chosen = module_backgrounds[index % len(module_backgrounds)]
-            chosen_hex = palette["surface"] if index % len(module_backgrounds) < 2 else palette.get("accent_secondary", palette["accent"])
-            module_style = ParagraphStyle(
-                f"module-{index}", parent=styles["module"],
-                textColor=_reportlab_color(_legible_foreground(chosen_hex, palette["text"])),
-            )
+            module_style = ParagraphStyle(f"module-{index}", parent=styles["module"], textColor=text)
             cells.append(BrandedBox(
-                _inline_markdown(block["text"]), module_style, background=chosen, border=card_border,
-                border_width=card_border_width, radius=card_radius, padding=card_padding, min_height=92,
-                shadow=bool(card_recipe.get("shadow") and card_recipe.get("shadow") != "none"),
+                _inline_markdown(block["text"]), module_style, background=background, border=surface,
+                border_width=0.8, radius=min(8, card_radius), padding=card_padding,
+                accent=accent if index % 2 == 0 else accent_secondary, min_height=72, shadow=False,
             ))
         rows: list[list[Any]] = []
         for index in range(0, len(cells), columns):
@@ -525,18 +502,12 @@ def create_pdf(
         component_usage["cards"] += len(step_blocks)
 
     def add_closing_section(section_blocks: list[dict[str, str]]) -> None:
-        """Resolve a short final promise as a composed two-column end card."""
-        if family == "asymmetric_feature_grid":
-            panel_hex = brand_dark_hex
-        elif family == "modular_announcement":
-            panel_hex = palette.get("accent_secondary", palette["accent"])
-        else:
-            panel_hex = palette["accent"]
-        panel_background = _reportlab_color(panel_hex)
-        panel_foreground_hex = _legible_foreground(panel_hex, palette["text"])
-        panel_foreground = _reportlab_color(panel_foreground_hex)
-        close_h = ParagraphStyle("close-h", parent=styles["h2"], fontSize=min(21, h2_size), leading=min(24, h2_size * 1.1), textColor=panel_foreground, spaceBefore=0, spaceAfter=0, alignment=TA_LEFT)
-        close_body = ParagraphStyle("close-body", parent=styles["body"], fontSize=9.5, leading=13, textColor=panel_foreground, spaceAfter=0)
+        """Resolve a short final promise as an open, spacious closing signature."""
+        close_h = ParagraphStyle(
+            "close-h", parent=styles["h2"], fontSize=min(25, h2_size), leading=min(29, h2_size * 1.12),
+            textColor=text, spaceBefore=0, spaceAfter=0, alignment=TA_LEFT,
+        )
+        close_body = ParagraphStyle("close-body", parent=styles["body"], fontSize=10.5, leading=16, textColor=text, spaceAfter=0)
         heading_flowable: Any = ""
         body_values: list[str] = []
         action_flowable: Any = ""
@@ -546,17 +517,16 @@ def create_pdf(
                 heading_flowable = Paragraph(safe, close_h)
                 component_usage["headings"] += 1
             elif block["kind"] == "action":
-                close_button_hex = palette["surface"]
                 close_action_style = ParagraphStyle(
                     "close-action", parent=styles["action"],
-                    textColor=_reportlab_color(_legible_foreground(close_button_hex, palette["text"])),
+                    textColor=_reportlab_color(button_foreground_hex),
                 )
                 action = BrandedBox(
-                    safe, close_action_style, background=_reportlab_color(close_button_hex),
-                    border=_reportlab_color(close_button_hex), border_width=0,
+                    safe, close_action_style, background=_reportlab_color(button_background_hex),
+                    border=_reportlab_color(button_background_hex), border_width=0,
                     radius=_number(primary_button.get("radius"), 16, 0, 20), padding=8, min_height=31,
                 )
-                action_flowable = Table([[action]], colWidths=[min(190, document.width * 0.4)], hAlign="LEFT", style=TableStyle([
+                action_flowable = Table([[action]], colWidths=[min(190, document.width * 0.34)], hAlign="RIGHT", style=TableStyle([
                     ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                     ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ]))
@@ -564,36 +534,25 @@ def create_pdf(
             else:
                 body_values.append(safe)
                 component_usage["standard_blocks"] += 1
-        stripe_width = 7
-        left_width = document.width * 0.41
-        right_width = document.width - stripe_width - left_width
-        right_stack = Table(
-            [[Paragraph("<br/><br/>".join(body_values), close_body)], [action_flowable]],
-            colWidths=[right_width],
+        body_width = document.width * 0.64
+        action_width = document.width - body_width
+        body_and_action = Table(
+            [[Paragraph("<br/><br/>".join(body_values), close_body), action_flowable]],
+            colWidths=[body_width, action_width],
             style=TableStyle([
                 ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, 0), base * 1.5),
-                ("BOTTOMPADDING", (0, 1), (-1, 1), 0), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]),
         )
-        stripe_hex = palette.get("accent_secondary", palette["surface"])
-        if _contrast_ratio(panel_hex, stripe_hex) < 1.25:
-            stripe_hex = palette["surface"]
         story.extend([
-            CondPageBreak(112),
-            Table([["", heading_flowable, right_stack]], colWidths=[stripe_width, left_width, right_width], style=TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), panel_background),
-                ("BACKGROUND", (0, 0), (0, 0), _reportlab_color(stripe_hex)),
-                ("LEFTPADDING", (0, 0), (0, 0), 0), ("RIGHTPADDING", (0, 0), (0, 0), 0),
-                ("LEFTPADDING", (1, 0), (1, 0), section_padding),
-                ("RIGHTPADDING", (1, 0), (1, 0), section_padding),
-                ("LEFTPADDING", (2, 0), (2, 0), 0),
-                ("RIGHTPADDING", (2, 0), (2, 0), section_padding),
-                ("TOPPADDING", (0, 0), (-1, -1), base * 2.2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), base * 2.2),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ])),
-            Spacer(1, base * 1.5),
+            CondPageBreak(130),
+            HRFlowable(width="100%", thickness=0.8, color=surface, spaceBefore=base * 2.5, spaceAfter=base * 1.2, hAlign="LEFT"),
+            HRFlowable(width="16%", thickness=4, color=accent, spaceBefore=0, spaceAfter=base * 2, hAlign="LEFT"),
+            heading_flowable,
+            Spacer(1, base * 2),
+            body_and_action,
+            Spacer(1, base * 2),
         ])
 
     sections = plan["layout"]["sections"]
