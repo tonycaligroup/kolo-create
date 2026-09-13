@@ -19,6 +19,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.platypus import CondPageBreak, Flowable, HRFlowable, Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .assets import select_logo_asset
+from .brand_components import select_component_plan, validate_component_plan
 from .composition import select_composition, validate_composition
 from .contracts import validate_design_system, validate_document_request
 from .planner import DeterministicPlanner, DocumentPlanner, source_blocks, validate_plan
@@ -237,7 +238,14 @@ def create_pdf(
     removed_emoji_count += title_emoji_count + subtitle_emoji_count
     plan["composition"] = select_composition(system, plan, blocks, prompt)
     validate_composition(plan["composition"])
+    plan["component_plan"] = select_component_plan(system, plan, blocks)
+    validate_component_plan(plan["component_plan"])
     family = plan["composition"]["family"]
+    component_plan = plan["component_plan"]
+    component_library = component_plan["library"]["components"]
+    marker_recipe = component_library["section-marker"]
+    dual_marker = marker_recipe["style"] == "dual-tone"
+    section_treatments = {item["section_id"]: item["treatment"] for item in component_plan["sections"]}
 
     page_size = A4 if plan["page_size"] == "A4" else LETTER
     if plan["orientation"] == "landscape":
@@ -303,10 +311,8 @@ def create_pdf(
     logo_asset = select_logo_asset(
         system, allow_svg=False, max_width=1.5 * inch, max_height=0.65 * inch,
     )
-    hero_asset = next(
-        (asset for asset in system["assets"] if asset.get("kind") == "hero-image" and Path(asset.get("path", "")).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}),
-        None,
-    )
+    cover_asset_id = component_plan["cover"].get("asset_id")
+    hero_asset = next((asset for asset in system["assets"] if asset.get("id") == cover_asset_id), None)
 
     output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -342,6 +348,21 @@ def create_pdf(
         label_width = pdfmetrics.stringWidth(plain_label, label_font, button_font_size)
         return min(max(button_width, label_width + 28), maximum)
 
+    def brand_rule(rule_width: float, thickness: float = 4, h_align: str = "LEFT") -> Table:
+        if dual_marker:
+            primary_width = rule_width * float(marker_recipe.get("primary_share", 0.72))
+            rule = Table([["", ""]], colWidths=[primary_width, rule_width - primary_width], rowHeights=[thickness], hAlign=h_align)
+            rule.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (0, 0), accent),
+                ("BACKGROUND", (1, 0), (1, 0), accent_secondary),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]))
+            return rule
+        rule = Table([[""]], colWidths=[rule_width], rowHeights=[thickness], hAlign=h_align)
+        rule.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), accent), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+        return rule
+
     def draw_cover_image(canvas: Any, image_path: str, x: float, y: float, box_width: float, box_height: float) -> None:
         source = ImageReader(image_path)
         image_width, image_height = source.getSize()
@@ -362,7 +383,12 @@ def create_pdf(
         canvas.setFillColor(background)
         canvas.rect(0, 0, width, height, stroke=0, fill=1)
         canvas.setFillColor(accent)
-        if family == "editorial_narrative":
+        if dual_marker:
+            share = float(marker_recipe.get("primary_share", 0.72))
+            canvas.rect(0, height - 7, width * share, 7, stroke=0, fill=1)
+            canvas.setFillColor(accent_secondary)
+            canvas.rect(width * share, height - 7, width * (1 - share), 7, stroke=0, fill=1)
+        elif family == "editorial_narrative":
             canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
         elif family == "asymmetric_feature_grid":
             canvas.rect(0, height - 12, width * 0.64, 12, stroke=0, fill=1)
@@ -392,8 +418,10 @@ def create_pdf(
                 canvas.setFillColor(surface)
                 canvas.setFont(display_font, min(170, width * 0.28))
                 canvas.drawRightString(width - 0.45 * inch, 0.8 * inch, "01")
-            elif family == "product_showcase" and hero_asset and Path(hero_asset["path"]).exists():
+            elif component_plan["cover"]["placement"] == "bottom-band" and hero_asset and Path(hero_asset["path"]).exists():
                 draw_cover_image(canvas, hero_asset["path"], 0, 0, width, height * 0.46)
+            elif component_plan["cover"]["placement"] == "side-panel" and hero_asset and Path(hero_asset["path"]).exists():
+                draw_cover_image(canvas, hero_asset["path"], width * 0.57, 0, width * 0.43, height * 0.72)
             else:
                 canvas.setFillColor(accent)
                 canvas.circle(width - 0.82 * inch, 0.82 * inch, 0.48 * inch, stroke=0, fill=1)
@@ -424,7 +452,7 @@ def create_pdf(
         )
         story.extend([
             Paragraph(_inline_markdown(plan["title"]), product_cover),
-            HRFlowable(width="24%", thickness=5, color=accent, spaceBefore=0, spaceAfter=base * 3, hAlign="LEFT"),
+            brand_rule(content_width * 0.24, 5), Spacer(1, base * 3),
             cover_subtitle,
         ])
     elif family == "modular_announcement":
@@ -464,7 +492,7 @@ def create_pdf(
     story.append(PageBreak())
 
     by_id = {block["id"]: block for block in blocks}
-    component_usage = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0}
+    component_usage = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 1, "feature_bands": 0}
     skipped_cover_heading = False
 
     def add_standard(block: dict[str, str], *, lead: bool = False) -> None:
@@ -489,9 +517,10 @@ def create_pdf(
             elif family in {"modular_announcement", "product_showcase"}:
                 story.extend([
                     CondPageBreak(145),
-                    HRFlowable(width="18%", thickness=4, color=accent_secondary, spaceBefore=base * 2.5, spaceAfter=base * 1.5, hAlign="LEFT"),
+                    Spacer(1, base * 2.5), brand_rule(content_width * 0.18, 4), Spacer(1, base * 1.5),
                     Paragraph(safe, styles["h2"]),
                 ])
+                component_usage["brand_rules"] += 1
             else:
                 story.extend([
                     CondPageBreak(130),
@@ -605,27 +634,47 @@ def create_pdf(
         story.append(grid)
         component_usage["cards"] += len(card_blocks)
 
-    def add_product_grid(card_blocks: list[dict[str, str]]) -> None:
+    def add_product_grid(card_blocks: list[dict[str, str]], treatment: str) -> None:
         if not card_blocks:
             return
         gap = max(10, base * 2.5)
         cell_width = (content_width - gap) / 2
+        remaining = card_blocks
+        if treatment == "feature-band":
+            feature_recipe = component_library["feature-band"]
+            feature_style = ParagraphStyle(
+                "brand-feature", parent=styles["module"], fontSize=11.5, leading=16,
+                textColor=_reportlab_color(feature_recipe["foreground"]),
+            )
+            feature = BrandedBox(
+                _inline_markdown(card_blocks[0]["text"]), feature_style,
+                background=_reportlab_color(feature_recipe["background"]), border=_reportlab_color(feature_recipe["background"]),
+                border_width=0, radius=min(10, card_radius), padding=max(15, card_padding),
+                accent=_reportlab_color(feature_recipe["accent"]), min_height=76, shadow=False,
+            )
+            story.extend([Table([[feature]], colWidths=[content_width], style=TableStyle([
+                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ])), Spacer(1, gap)])
+            remaining = card_blocks[1:]
+            component_usage["feature_bands"] += 1
         cells = [
             BrandedBox(
                 _inline_markdown(block["text"]), styles["module"], background=card_background,
                 border=card_background, border_width=0, radius=min(10, card_radius),
                 padding=max(12, card_padding), min_height=74, shadow=False,
             )
-            for block in card_blocks
+            for block in remaining
         ]
-        rows = _paired_grid_rows(cells)
-        grid = Table(rows, colWidths=[cell_width, gap, cell_width], hAlign="LEFT", spaceAfter=base * 3)
-        grid.setStyle(TableStyle([
-            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("TOPPADDING", (0, 0), (-1, -1), gap / 2), ("BOTTOMPADDING", (0, 0), (-1, -1), gap / 2),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
-        story.append(grid)
+        if cells:
+            rows = _paired_grid_rows(cells)
+            grid = Table(rows, colWidths=[cell_width, gap, cell_width], hAlign="LEFT", spaceAfter=base * 3)
+            grid.setStyle(TableStyle([
+                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), gap / 2), ("BOTTOMPADDING", (0, 0), (-1, -1), gap / 2),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]))
+            story.append(grid)
         component_usage["cards"] += len(card_blocks)
 
     step_number = 0
@@ -699,12 +748,13 @@ def create_pdf(
         story.extend([
             CondPageBreak(130),
             HRFlowable(width="100%", thickness=0.8, color=surface, spaceBefore=base * 2.5, spaceAfter=base * 1.2, hAlign="LEFT"),
-            HRFlowable(width="16%", thickness=4, color=accent, spaceBefore=0, spaceAfter=base * 2, hAlign="LEFT"),
+            brand_rule(content_width * 0.16, 4), Spacer(1, base * 2),
             heading_flowable,
             Spacer(1, base * 2),
             body_and_action,
             Spacer(1, base * 2),
         ])
+        component_usage["brand_rules"] += 1
 
     sections = plan["layout"]["sections"]
     for section_index, section in enumerate(sections):
@@ -736,7 +786,7 @@ def create_pdf(
             elif family == "asymmetric_feature_grid":
                 add_asymmetric_grid(pending_cards)
             elif family == "product_showcase":
-                add_product_grid(pending_cards)
+                add_product_grid(pending_cards, section_treatments.get(section["id"], "standard"))
             elif section["variant"] == "card_grid":
                 add_card_grid(pending_cards)
             else:

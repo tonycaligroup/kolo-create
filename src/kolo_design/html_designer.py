@@ -16,7 +16,8 @@ from playwright.sync_api import sync_playwright
 from pypdf import PdfReader
 
 from .browser_extract import _browser_executable
-from .assets import raster_dimensions, select_logo_asset
+from .assets import select_logo_asset
+from .brand_components import select_component_plan, validate_component_plan
 from .composition import select_composition, validate_composition
 from .contracts import validate_design_system, validate_document_request
 from .pdf_designer import (
@@ -65,25 +66,6 @@ def _asset_uri(system: dict[str, Any], kind: str) -> str | None:
     return None
 
 
-def _hero_treatment(system: dict[str, Any]) -> tuple[str | None, str]:
-    """Match raster hero geometry to a slot that does not require enlargement."""
-    suffixes = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-    for asset in system.get("assets") or []:
-        path = Path(str(asset.get("path", "")))
-        if asset.get("kind") != "hero-image" or path.suffix.lower() not in suffixes or not path.exists():
-            continue
-        dimensions = raster_dimensions(path)
-        if not dimensions:
-            continue
-        width, height = dimensions
-        aspect = width / max(1, height)
-        if aspect >= 1.25 and width >= 1020 and height >= 590:
-            return path.resolve().as_uri(), "landscape"
-        if aspect < 1.25 and width >= 510 and height >= 1320:
-            return path.resolve().as_uri(), "portrait"
-    return None, "abstract"
-
-
 def _page_groups(sections: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     """Keep comparison documents at three explicit pages with stable ownership."""
     split = min(3, max(1, len(sections) - 1))
@@ -97,16 +79,18 @@ def _render_section(
     *,
     first: bool = False,
     closing: bool = False,
+    treatment: str = "standard",
     skip_ids: set[str] | None = None,
 ) -> tuple[str, dict[str, int]]:
     skip_ids = skip_ids or set()
     blocks = [by_id[block_id] for block_id in section["block_ids"] if block_id not in skip_ids]
-    counts = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0}
+    counts = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 0, "feature_bands": 0}
     if closing:
         heading = next((block for block in blocks if block["kind"].startswith("heading")), None)
         action = next((block for block in blocks if block["kind"] == "action"), None)
         body = [block for block in blocks if block["kind"] == "paragraph"]
         counts["headings"] += int(heading is not None)
+        counts["brand_rules"] += int(heading is not None)
         counts["actions"] += int(action is not None)
         counts["standard_blocks"] += len(body)
         body_html = "".join(f'<p>{_inline_html(block["text"])}</p>' for block in body)
@@ -130,10 +114,11 @@ def _render_section(
             return
         cards = []
         for index, block in enumerate(pending_cards):
-            extra = " feature-card" if family in {"asymmetric_feature_grid", "product_showcase"} and index == 0 else ""
+            extra = " feature-card brand-feature-band" if treatment == "feature-band" and index == 0 else ""
             cards.append(f'<div class="card{extra}"><div>{_inline_html(block["text"])}</div></div>')
         rendered.append(f'<div class="card-grid">{"".join(cards)}</div>')
         counts["cards"] += len(pending_cards)
+        counts["feature_bands"] += int(treatment == "feature-band")
         pending_cards.clear()
 
     bullet_count = sum(block["kind"] == "bullet" for block in blocks)
@@ -148,6 +133,7 @@ def _render_section(
         if kind.startswith("heading"):
             rendered.append(f'<div class="section-rule"></div><h2>{value}</h2>')
             counts["headings"] += 1
+            counts["brand_rules"] += 1
         elif kind == "callout":
             rendered.append(f'<div class="callout">{value}</div>')
             counts["callouts"] += 1
@@ -185,8 +171,15 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
     radius = _number(cards.get("radius"), system["tokens"].get("shape", {}).get("radius", 8), 0, 22)
     card_padding = _number(base * 3, 14, 10, 22)
     family = plan["composition"]["family"]
+    component_plan = plan.get("component_plan") or select_component_plan(system, plan, blocks)
+    validate_component_plan(component_plan)
+    section_treatments = {item["section_id"]: item["treatment"] for item in component_plan["sections"]}
+    marker_style = component_plan["library"]["components"]["section-marker"]["style"]
     logo = _asset_uri(system, "logo")
-    hero, hero_layout = _hero_treatment(system)
+    cover_component = component_plan["cover"]
+    hero_asset = next((asset for asset in system.get("assets") or [] if asset.get("id") == cover_component.get("asset_id")), None)
+    hero = Path(str(hero_asset["path"])).resolve().as_uri() if hero_asset and Path(str(hero_asset["path"])).exists() else None
+    hero_layout = {"bottom-band": "landscape", "side-panel": "portrait", "none": "abstract"}[cover_component["placement"]]
     hero_markup = (
         f'<figure class="hero-frame"><img src="{hero}" alt=""></figure>'
         if hero else '<div class="hero-abstract"><i></i><i></i><i></i></div>'
@@ -207,7 +200,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
             cover_source_id = opening_callout["id"]
     skip_ids = {cover_source_id} if cover_source_id else set()
     groups = _page_groups(plan["layout"]["sections"])
-    usage = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0}
+    usage = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 1, "feature_bands": 0}
     body_pages = []
     for page_index, group in enumerate(groups, 1):
         section_markup = []
@@ -225,6 +218,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
                 section, by_id, family,
                 first=family == "editorial_narrative" and section_index == 0,
                 closing=is_closing,
+                treatment=section_treatments.get(section["id"], "standard"),
                 skip_ids=skip_ids,
             )
             section_markup.append(markup)
@@ -274,6 +268,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       .section {{ width:100%; margin-bottom:22px; break-inside:avoid; }}
       .section:last-child {{ margin-bottom:0; }}
       .section-rule {{ width:94px; height:5px; border-radius:3px; background:var(--accent); margin:0 0 17px; }}
+      .marker-dual-tone .section-rule {{ background:linear-gradient(90deg,var(--accent) 0 72%,var(--accent-2) 72% 100%); }}
       h2 {{ font-size:var(--h2); line-height:1.04; margin-bottom:9px; max-width:92%; }}
       p {{ margin:0 0 11px; font-size:12.5px; line-height:1.48; }}
       .lead {{ font-size:15px; line-height:1.5; }}
@@ -282,6 +277,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       .card {{ min-height:67px; padding:var(--card-pad); border-radius:var(--radius); background:var(--card-bg); color:var(--card-text); font-size:13px; line-height:1.35; display:flex; align-items:center; border:1px solid color-mix(in srgb, var(--card-text), transparent 86%); }}
       .card strong {{ font-weight:700; }}
       .family-asymmetric_feature_grid .feature-card,.family-product_showcase .feature-card {{ grid-column:1/-1; min-height:76px; font-size:15px; }}
+      .brand-feature-band {{ background:var(--brand-dark); color:#fff; border:0; border-left:6px solid var(--accent-2); padding:18px 20px; }}
       .family-editorial_narrative .card-grid {{ gap:0 24px; }}
       .family-editorial_narrative .card {{ background:transparent; color:var(--text); border:0; border-top:1px solid var(--surface); border-radius:0; padding:13px 0; min-height:58px; }}
       .text-action,.closing-action {{ text-align:right; }}
@@ -298,7 +294,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
     document = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         f'<meta name="generator" content="Kolo Create HTML renderer"><title>{html.escape(plan["title"])}</title><style>{css}</style></head>'
-        f'<body class="family-{family}">'
+        f'<body class="family-{family} marker-{marker_style}">'
         f'<article class="page cover hero-{hero_layout}" data-page="1">'
         f'<div class="cover-copy"><div class="eyebrow">{html.escape(system["name"])} design language</div>'
         f'<h1>{_inline_html(plan["title"])}</h1><p class="subtitle">{_inline_html(cover_subtitle)}</p>{logo_markup}</div>'
@@ -340,6 +336,8 @@ def create_html_pdf(
     removed_emoji_count += title_removed + subtitle_removed
     plan["composition"] = select_composition(system, plan, blocks, prompt)
     validate_composition(plan["composition"])
+    plan["component_plan"] = select_component_plan(system, plan, blocks)
+    validate_component_plan(plan["component_plan"])
     markup, component_usage = _document_html(system, plan, blocks)
 
     output_path = output_path.resolve()

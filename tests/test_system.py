@@ -9,6 +9,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 import kolo_design.cli as cli_module
 from kolo_design.assets import select_logo_asset
+from kolo_design.brand_components import build_brand_components, select_component_plan, validate_component_plan
 from kolo_design.composition import select_composition, validate_composition
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
@@ -67,6 +68,20 @@ def test_html_cover_uses_hero_image_once(tmp_path: Path) -> None:
     assert markup.count(hero.resolve().as_uri()) == 1
     assert 'class="hero-frame"' in markup
     assert 'class="page cover hero-landscape"' in markup
+
+
+def test_brand_component_plan_is_restrained_and_shared() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    system["tokens"]["colors"].update({"accent_secondary": "#F9CB10", "brand_dark": "#000F1E"})
+    system["brand_components"] = build_brand_components(system)
+    content = "# Title\n\n## First\n\n- One\n- Two\n\n## Second\n\n- Three\n- Four\n\n## Finish\n\n[Continue](https://example.com)"
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Create a product showcase", blocks)
+    component_plan = select_component_plan(system, plan, blocks)
+    validate_component_plan(component_plan)
+    assert component_plan["preferred_renderer"] == "reportlab"
+    assert component_plan["library"]["components"]["section-marker"]["style"] == "dual-tone"
+    assert sum(section["treatment"] == "feature-band" for section in component_plan["sections"]) == 1
 
 
 def test_component_foreground_falls_back_to_readable_contrast() -> None:
