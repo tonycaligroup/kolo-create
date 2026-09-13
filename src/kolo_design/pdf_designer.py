@@ -61,11 +61,14 @@ def _legible_foreground(background: str, *candidates: Any) -> str:
 
 
 def _font_roles(system: dict[str, Any]) -> tuple[str, str, str]:
-    display = system["tokens"]["typography"]["display_family"].lower()
+    typography = system["tokens"]["typography"]
+    display = typography["display_family"].lower()
     serif_markers = ("serif", "times", "georgia", "garamond", "baskerville")
-    display_font = "Times-Bold" if any(marker in display for marker in serif_markers) else "Helvetica-Bold"
-    body = system["tokens"]["typography"]["body_family"].lower()
-    body_font = "Times-Roman" if any(marker in body for marker in serif_markers) else "Helvetica"
+    display_is_serif = typography.get("display_fallback") == "serif" or any(marker in display for marker in serif_markers)
+    display_font = "Times-Bold" if display_is_serif else "Helvetica-Bold"
+    body = typography["body_family"].lower()
+    body_is_serif = typography.get("body_fallback") == "serif" or any(marker in body for marker in serif_markers)
+    body_font = "Times-Roman" if body_is_serif else "Helvetica"
     return display_font, body_font, "Helvetica-Bold"
 
 
@@ -180,6 +183,7 @@ def create_pdf(
     surface = _reportlab_color(palette["surface"])
     text = _reportlab_color(palette["text"])
     accent = _reportlab_color(palette["accent"])
+    accent_secondary = _reportlab_color(palette.get("accent_secondary", palette["accent"]))
     display_font, body_font, label_font = _font_roles(system)
     base = float(system["tokens"]["spacing"]["base"])
     components = system.get("components") or {}
@@ -234,7 +238,7 @@ def create_pdf(
         if doc.page == 1:
             canvas.setFillColor(surface)
             canvas.circle(width - 0.3 * inch, 0.55 * inch, 1.7 * inch, stroke=0, fill=1)
-            canvas.setFillColor(accent)
+            canvas.setFillColor(accent_secondary)
             canvas.circle(width - 0.05 * inch, 0.3 * inch, 0.85 * inch, stroke=0, fill=1)
         if doc.page > 1:
             canvas.setFont(label_font, 7.5)

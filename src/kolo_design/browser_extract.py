@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,32 @@ def _literal_private_host(url: str) -> bool:
         return False
 
 
+def rasterize_svg(payload: bytes) -> bytes | None:
+    """Create a transparent PNG fallback for an SVG logo without network access."""
+    executable = _browser_executable()
+    if not executable:
+        return None
+    encoded = base64.b64encode(payload).decode("ascii")
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=executable, headless=True, args=["--disable-dev-shm-usage"])
+        context = browser.new_context(viewport={"width": 1000, "height": 600}, device_scale_factor=1)
+        page = context.new_page()
+        try:
+            page.set_content(
+                f'<style>html,body{{margin:0;background:transparent}}img{{display:block;max-width:800px;max-height:500px}}</style>'
+                f'<img id="logo" src="data:image/svg+xml;base64,{encoded}">',
+                wait_until="load",
+            )
+            logo = page.locator("#logo")
+            logo.wait_for(state="visible", timeout=5_000)
+            return logo.screenshot(type="png", omit_background=True)
+        except PlaywrightTimeoutError:
+            return None
+        finally:
+            context.close()
+            browser.close()
+
+
 def browser_snapshot(url: str) -> dict[str, Any] | None:
     executable = _browser_executable()
     if not executable:
@@ -52,7 +79,7 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
         context.route("**/*", route_request)
         page = context.new_page()
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+            response = page.goto(url, wait_until="domcontentloaded", timeout=20_000)
             try:
                 page.wait_for_load_state("networkidle", timeout=8_000)
             except PlaywrightTimeoutError:
@@ -78,21 +105,39 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
                       `width:${Math.round(r.width)}px`, `max-width:${s.maxWidth}`
                     ].join(';');
                   });
+                  const viewportArea = Math.max(1, innerWidth * innerHeight);
                   const elements = visible.slice(0, 1800).map((el) => {
                     const s = getComputedStyle(el), r = el.getBoundingClientRect();
+                    const clippedWidth = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0));
+                    const clippedHeight = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+                    const region = el.closest('[role="dialog"],dialog,header,nav,main,footer,section,article,aside');
+                    const hint = [el.id, el.className, el.getAttribute('role'), el.getAttribute('aria-label')]
+                      .filter((value) => typeof value === 'string').join(' ').toLowerCase();
+                    const overlayHint = /(cookie|consent|privacy|modal|dialog|overlay|tracking|preference)/.test(hint);
+                    const overlayPosition = ['fixed', 'sticky'].includes(s.position) && clippedWidth * clippedHeight > viewportArea * 0.08;
                     return {
                       tag: el.tagName.toLowerCase(),
                       role: el.getAttribute('role') || '',
                       href: Boolean(el.getAttribute('href')),
+                      src: el.currentSrc || el.getAttribute('src') || '',
+                      alt: el.getAttribute('alt') || '',
                       text_sample: (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ').slice(0, 80),
                       rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+                      viewport: {
+                        visible: clippedWidth > 0 && clippedHeight > 0,
+                        area_ratio: Math.round((clippedWidth * clippedHeight / viewportArea) * 10000) / 10000
+                      },
+                      semantic: {
+                        region: region ? (region.getAttribute('role') || region.tagName.toLowerCase()) : 'body',
+                        overlay: overlayHint || overlayPosition || el.getAttribute('aria-modal') === 'true'
+                      },
                       style: {
                         color: s.color, background: s.backgroundColor, border_color: s.borderColor,
                         border_width: s.borderWidth, border_radius: s.borderRadius, box_shadow: s.boxShadow,
                         font_family: s.fontFamily, font_size: s.fontSize, font_weight: s.fontWeight,
                         line_height: s.lineHeight, letter_spacing: s.letterSpacing, text_align: s.textAlign,
                         padding: `${s.paddingTop} ${s.paddingRight} ${s.paddingBottom} ${s.paddingLeft}`,
-                        display: s.display, object_fit: s.objectFit
+                        display: s.display, object_fit: s.objectFit, position: s.position, z_index: s.zIndex
                       }
                     };
                   });
@@ -108,6 +153,7 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
                 }"""
             )
             snapshot["url"] = page.url
+            snapshot["response_status"] = response.status if response else None
             snapshot["screenshot"] = page.screenshot(full_page=False, type="png")
             return snapshot
         finally:

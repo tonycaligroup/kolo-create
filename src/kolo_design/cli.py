@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .extractor import extract_brand
+from .network import FetchError
 from .pdf_designer import create_pdf
 from .planner import DeterministicPlanner, OpenAICompatiblePlanner
 
@@ -47,6 +48,15 @@ def main(argv: list[str] | None = None) -> int:
             result = create_pdf(args.system, args.content, args.prompt, args.output, planner_impl)
         print(json.dumps(result, sort_keys=True))
         return 0
+    except FetchError as exc:
+        print(json.dumps({
+            "status": "error",
+            "code": "website_access_blocked",
+            "message": str(exc),
+            "question": "Can you provide another public landing-page URL for this brand?",
+            "recommended_next_step": "Try a public regional or campaign page on the same domain.",
+        }, sort_keys=True))
+        return 1
     except Exception as exc:
         print(json.dumps({"status": "error", "code": "design_studio_error", "message": str(exc)}, sort_keys=True))
         return 1

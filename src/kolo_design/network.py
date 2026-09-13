@@ -57,6 +57,8 @@ def fetch_limited(url: str, max_bytes: int, *, accept: str = "*/*") -> tuple[str
                         raise FetchError("Redirect response had no Location header")
                     current = urljoin(current, location)
                     continue
+                if response.status_code >= 400:
+                    raise FetchError(f"Website returned HTTP {response.status_code} for {current}")
                 response.raise_for_status()
                 advertised = response.headers.get("content-length")
                 if advertised and int(advertised) > max_bytes:

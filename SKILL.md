@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website, then use that saved system with user-supplied text and a design prompt to produce a polished, verified PDF. Use when a user wants to capture brand language, generate branded documents, refresh a saved brand, or reuse a brand across new PDFs.
 metadata:
-  version: "0.3.2"
+  version: "0.4.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.3.2
+version: 0.4.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: website extraction creates a reusable versioned design system; PDF generation consumes an exact saved version without recrawling or modifying it.
@@ -25,7 +25,7 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 
 Return the design-system JSON, specimen, source screenshot, brand ID, and evidence counts. Explain that observed values are evidence while semantic token roles are deterministic candidates.
 
-The design system includes more than tokens: capture observed heading levels, primary and secondary buttons, cards, navigation, section surfaces, imagery proportions, borders, radii, shadows, padding, alignment, and common labels. Return the separate component-inventory path as well.
+The design system includes more than tokens: capture observed heading levels, primary and secondary buttons, component variants, cards, navigation, section surfaces, imagery proportions, borders, radii, shadows, padding, alignment, and common labels. It stores a multi-color brand palette, portable font categories, overlay exclusions, and visual-language signals such as media coverage, density, and whether the sampled viewport is media-, illustration-, interface-, or typography-led. Return the separate component-inventory path as well.
 
 ## 2. Create a PDF
 
@@ -48,6 +48,7 @@ The LLM route requires `KOLO_LLM_BASE_URL` and `KOLO_LLM_TOKEN`. Choose the mode
 ## Safety and quality boundaries
 
 - Accept public HTTP(S) websites only; validate every redirect and cap every response while streaming.
+- If both browser and bounded HTTP retrieval fail, return the focused access question and recommend one alternate public landing-page URL; do not loop over guessed paths.
 - Block private, loopback, link-local, and metadata addresses.
 - Prefer browser-rendered computed styles and use bounded static extraction as fallback; report which mode ran.
 - Use Kolo's `logo-scraper` when installed and retain bounded HTML logo discovery as fallback.

@@ -1,8 +1,20 @@
 from __future__ import annotations
 
 from bs4 import BeautifulSoup
+from PIL import Image
 
-from kolo_design.extractor import _choose_colors, _choose_fonts, _color_to_hex, _component_inventory, _logo_candidates, _refine_rendered_colors, _spacing
+from kolo_design.extractor import (
+    _choose_colors,
+    _choose_fonts,
+    _color_to_hex,
+    _component_inventory,
+    _logo_candidates,
+    _logo_palette,
+    _refine_rendered_colors,
+    _refine_rendered_fonts,
+    _spacing,
+    _visual_language,
+)
 
 
 def test_style_evidence_compiles_to_semantic_tokens() -> None:
@@ -45,7 +57,10 @@ def test_rendered_dark_brand_overrides_noisy_static_palette() -> None:
     colors = _refine_rendered_colors(
         {"background": "#FFFFFF", "surface": "#F5F5F5", "text": "#000000", "accent": "#090909"}, rendered
     )
-    assert colors == {"background": "#090909", "surface": "#12100F", "text": "#FFFAF3", "accent": "#FF8557"}
+    assert colors == {
+        "background": "#090909", "surface": "#12100F", "text": "#FFFAF3",
+        "accent": "#FF8557", "accent_secondary": "#FF8557",
+    }
 
 
 def test_low_contrast_cookie_overlay_does_not_replace_brand_background() -> None:
@@ -63,6 +78,102 @@ def test_low_contrast_cookie_overlay_does_not_replace_brand_background() -> None
     assert colors["text"] == "#333333"
 
 
+def test_cta_and_logo_colors_outrank_browser_default_links() -> None:
+    rendered = {
+        "root_styles": {"body": {"background": "#FFFFFF", "color": "#3C3C3C"}},
+        "viewport": {"width": 1440, "height": 1000},
+        "elements": [
+            {
+                "tag": "main", "rect": {"width": 1440, "height": 900},
+                "viewport": {"visible": True, "area_ratio": 0.9}, "semantic": {"region": "main", "overlay": False},
+                "style": {"background": "#FFFFFF", "color": "#3C3C3C", "border_color": "#FFFFFF"},
+            },
+            {
+                "tag": "a", "href": True, "text_sample": "Get started", "rect": {"width": 240, "height": 48},
+                "viewport": {"visible": True, "area_ratio": 0.008}, "semantic": {"region": "main", "overlay": False},
+                "style": {"background": "#58CC02", "color": "#FFFFFF", "border_color": "#58CC02"},
+            },
+            {
+                "tag": "a", "href": True, "text_sample": "Legal", "rect": {"width": 80, "height": 30},
+                "viewport": {"visible": True, "area_ratio": 0.002}, "semantic": {"region": "main", "overlay": False},
+                "style": {"background": "transparent", "color": "#0000EE", "border_color": "#0000EE"},
+            },
+        ],
+    }
+    colors = _refine_rendered_colors(
+        {"background": "#FFFFFF", "surface": "#F7F7F7", "text": "#3C3C3C", "accent": "#0000EE"},
+        rendered,
+        ["#58CC02"],
+    )
+    assert colors["accent"] == "#58CC02"
+    assert colors["accent_secondary"] == "#58CC02"
+
+
+def test_overlay_colors_are_excluded_from_palette_and_visual_language() -> None:
+    rendered = {
+        "root_styles": {"body": {"background": "#FFFFFF", "color": "#111111"}},
+        "viewport": {"width": 1000, "height": 1000},
+        "elements": [
+            {
+                "tag": "main", "rect": {"width": 1000, "height": 900},
+                "viewport": {"visible": True, "area_ratio": 0.9}, "semantic": {"region": "main", "overlay": False},
+                "style": {"background": "#FFFFFF", "color": "#111111", "border_color": "#FFFFFF", "text_align": "left"},
+            },
+            {
+                "tag": "div", "rect": {"width": 1000, "height": 700},
+                "viewport": {"visible": True, "area_ratio": 0.7}, "semantic": {"region": "dialog", "overlay": True},
+                "style": {"background": "#765432", "color": "#FFFFFF", "border_color": "#765432", "text_align": "center"},
+            },
+        ],
+    }
+    colors = _refine_rendered_colors(
+        {"background": "#FFFFFF", "surface": "#F8F8F8", "text": "#111111", "accent": "#2244CC"}, rendered
+    )
+    assert colors["background"] == "#FFFFFF"
+    assert colors["accent"] != "#765432"
+    assert _visual_language(rendered)["overlay_count"] == 1
+
+
+def test_dominant_light_canvas_replaces_noisy_static_dark_background() -> None:
+    rendered = {
+        "root_styles": {
+            "body": {"background": "transparent", "color": "#000000"},
+            "html": {"background": "transparent", "color": "#000000"},
+        },
+        "viewport": {"width": 1000, "height": 1000},
+        "elements": [
+            {
+                "tag": "main", "text_sample": "Main content", "rect": {"width": 1000, "height": 900},
+                "viewport": {"visible": True, "area_ratio": 0.9}, "semantic": {"region": "main", "overlay": False},
+                "style": {"background": "#F7F5F2", "color": "#000000", "border_color": "#F7F5F2"},
+            }
+        ],
+    }
+    colors = _refine_rendered_colors(
+        {"background": "#161313", "surface": "#002969", "text": "#F7F5F2", "accent": "#0061FE"}, rendered
+    )
+    assert colors["background"] == "#F7F5F2"
+    assert colors["text"] == "#000000"
+
+
+def test_rendered_heading_and_body_fonts_define_portable_categories() -> None:
+    rendered = {
+        "elements": [
+            {
+                "tag": "h1", "text_sample": "Big headline", "semantic": {"overlay": False},
+                "style": {"font_family": "Means Web, Georgia, serif", "font_size": "64px"},
+            },
+            {
+                "tag": "p", "text_sample": "Readable supporting copy for the page", "semantic": {"overlay": False},
+                "style": {"font_family": "Graphik Web, Arial, sans-serif", "font_size": "17px"},
+            },
+        ]
+    }
+    display, body, display_fallback, body_fallback = _refine_rendered_fonts("Arial", "Arial", rendered)
+    assert (display, body) == ("Means Web", "Graphik Web")
+    assert (display_fallback, body_fallback) == ("serif", "sans-serif")
+
+
 def test_site_icon_outranks_unrelated_customer_logo() -> None:
     soup = BeautifulSoup(
         '<link rel="icon" href="/favicon.png"><img alt="Customer logo" src="/customers/acme.png">',
@@ -72,6 +183,15 @@ def test_site_icon_outranks_unrelated_customer_logo() -> None:
     assert candidates[0][1] == "https://stripe.com/favicon.png"
 
 
+def test_logo_palette_uses_raster_fallback_after_svg(tmp_path) -> None:
+    svg = tmp_path / "logo.svg"
+    svg.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
+    png = tmp_path / "logo.png"
+    Image.new("RGB", (20, 20), "#0061FE").save(png)
+    palette = _logo_palette([{"path": str(svg)}, {"path": str(png)}])
+    assert palette[0] == "#0061FE"
+
+
 def test_structured_brand_logo_outranks_product_logo() -> None:
     soup = BeautifulSoup(
         '<meta property="og:image" content="/structured/open_graph_logo.png"><img alt="Product logo" src="/images/logos/apple-watch.png">',
@@ -79,6 +199,17 @@ def test_structured_brand_logo_outranks_product_logo() -> None:
     )
     candidates = _logo_candidates(soup, "https://apple.com")
     assert candidates[0][1] == "https://apple.com/structured/open_graph_logo.png"
+
+
+def test_exact_brand_logo_outranks_product_logos_in_brand_asset_namespace() -> None:
+    soup = BeautifulSoup(
+        '<img alt="" src="/assets/dropbox/replay-logo-nav.svg">'
+        '<img alt="" src="/assets/dropbox/dropbox-sign-logo.svg">'
+        '<img alt="" src="/assets/dropbox/Dropbox-logo-nav.svg">',
+        "html.parser",
+    )
+    candidates = _logo_candidates(soup, "https://dropbox.com")
+    assert candidates[0][1].endswith("/Dropbox-logo-nav.svg")
 
 
 def test_component_inventory_separates_primary_and_secondary_buttons() -> None:
