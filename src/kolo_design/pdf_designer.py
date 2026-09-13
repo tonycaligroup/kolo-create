@@ -141,6 +141,21 @@ def _alignment(value: str | None) -> int:
     return {"center": TA_CENTER, "right": TA_RIGHT, "end": TA_RIGHT}.get(str(value).lower(), TA_LEFT)
 
 
+def _cover_alignment(family: str, observed: str | None) -> int:
+    """Keep each cover on one grid instead of mixing sampled alignments."""
+    return TA_LEFT if family in {"product_showcase", "asymmetric_feature_grid"} else _alignment(observed)
+
+
+def _paired_grid_rows(cells: list[Any]) -> list[list[Any]]:
+    """Place paired cells around an explicit gutter so both outer edges align."""
+    rows: list[list[Any]] = []
+    for index in range(0, len(cells), 2):
+        pair = cells[index:index + 2]
+        pair.extend([""] * (2 - len(pair)))
+        rows.append([pair[0], "", pair[1]])
+    return rows
+
+
 def _bounded_radius(radius: float, width: float, height: float) -> float:
     """Keep rounded rectangles inside ReportLab's stable geometric range."""
     return max(0.0, min(radius, max(0.0, width / 2 - 0.5), max(0.0, height / 2 - 0.5)))
@@ -279,6 +294,8 @@ def create_pdf(
         button_border_hex = button_background_hex
         button_border = _reportlab_color(button_border_hex)
     eyebrow_hex = _eyebrow_color(palette)
+    cover_alignment = _cover_alignment(family, heading1_recipe.get("text_align"))
+    section_alignment = TA_LEFT if family == "editorial_narrative" else _alignment(heading2_recipe.get("text_align"))
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
     section_background = _recipe_color(section_recipe.get("background"), palette["surface"])
@@ -301,10 +318,11 @@ def create_pdf(
     button_width = _number(primary_button.get("typical_width"), 170, 120, min(250, document.width))
     styles = {
         "eyebrow": ParagraphStyle("eyebrow", fontName=label_font, fontSize=8.5, leading=11, textColor=_reportlab_color(eyebrow_hex), spaceAfter=base * 2, tracking=1.1),
-        "cover": ParagraphStyle("cover", fontName=display_font, fontSize=h1_size, leading=h1_size * 1.08, textColor=text, spaceAfter=base * 3, alignment=_alignment(heading1_recipe.get("text_align"))),
-        "subtitle": ParagraphStyle("subtitle", fontName=body_font, fontSize=13, leading=19, textColor=text, spaceAfter=base * 3),
+        "cover-eyebrow": ParagraphStyle("cover-eyebrow", fontName=label_font, fontSize=8.5, leading=11, textColor=_reportlab_color(eyebrow_hex), spaceAfter=base * 2, tracking=1.1, alignment=cover_alignment),
+        "cover": ParagraphStyle("cover", fontName=display_font, fontSize=h1_size, leading=h1_size * 1.08, textColor=text, spaceAfter=base * 3, alignment=cover_alignment),
+        "subtitle": ParagraphStyle("subtitle", fontName=body_font, fontSize=13, leading=19, textColor=text, spaceAfter=base * 3, alignment=cover_alignment),
         "h1": ParagraphStyle("h1", fontName=display_font, fontSize=min(30, h1_size * 0.7), leading=min(34, h1_size * 0.78), textColor=text, spaceBefore=base * 3, spaceAfter=base * 2, alignment=_alignment(heading1_recipe.get("text_align"))),
-        "h2": ParagraphStyle("h2", fontName=display_font, fontSize=h2_size, leading=h2_size * 1.12, textColor=text, spaceBefore=base * 2.5, spaceAfter=base * 1.5, alignment=_alignment(heading2_recipe.get("text_align"))),
+        "h2": ParagraphStyle("h2", fontName=display_font, fontSize=h2_size, leading=h2_size * 1.12, textColor=text, spaceBefore=base * 2.5, spaceAfter=base * 1.5, alignment=section_alignment),
         "h3": ParagraphStyle("h3", fontName=label_font, fontSize=h3_size, leading=h3_size * 1.3, textColor=accent, spaceBefore=base * 2, spaceAfter=base, alignment=_alignment(heading3_recipe.get("text_align"))),
         "body": ParagraphStyle("body", fontName=body_font, fontSize=10.5, leading=16, textColor=text, spaceAfter=base * 1.6, alignment=TA_LEFT),
         "lead": ParagraphStyle("lead", fontName=body_font, fontSize=13.5, leading=20, textColor=text, spaceAfter=base * 2.2, alignment=TA_LEFT),
@@ -386,7 +404,7 @@ def create_pdf(
         canvas.restoreState()
 
     story: list[Any] = [Spacer(1, height * (0.08 if family in {"modular_announcement", "product_showcase"} else 0.13))]
-    story.append(Paragraph(html.escape(f"{system['name']} DESIGN LANGUAGE".upper()), styles["eyebrow"]))
+    story.append(Paragraph(html.escape(f"{system['name']} DESIGN LANGUAGE".upper()), styles["cover-eyebrow"]))
     cover_title = Paragraph(_inline_markdown(plan["title"]), styles["cover"])
     cover_source_id: str | None = None
     cover_subtitle_text = plan["subtitle"]
@@ -419,10 +437,17 @@ def create_pdf(
             Table([[cover_subtitle, ""]], colWidths=[document.width * 0.54, document.width * 0.46], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])),
         ])
     else:
-        story.extend([cover_title, Table([[""]], colWidths=[1.2 * inch], rowHeights=[5], style=TableStyle([("BACKGROUND", (0, 0), (-1, -1), accent)])), Spacer(1, base * 3), cover_subtitle])
+        story.extend([
+            cover_title,
+            HRFlowable(
+                width="18%", thickness=5, color=accent, spaceBefore=0, spaceAfter=base * 3,
+                hAlign="CENTER" if cover_alignment == TA_CENTER else "RIGHT" if cover_alignment == TA_RIGHT else "LEFT",
+            ),
+            cover_subtitle,
+        ])
     if logo_asset and Path(logo_asset["path"]).exists():
         image = Image(logo_asset["path"], width=1.5 * inch, height=0.65 * inch, kind="proportional")
-        image.hAlign = "LEFT"
+        image.hAlign = "CENTER" if cover_alignment == TA_CENTER else "RIGHT" if cover_alignment == TA_RIGHT else "LEFT"
         story.extend([Spacer(1, base * 5), image])
     story.append(PageBreak())
 
@@ -510,10 +535,11 @@ def create_pdf(
         for index in range(0, len(cells), columns):
             row = cells[index:index + columns]
             row.extend([""] * (columns - len(row)))
-            rows.append(row)
-        grid = Table(rows, colWidths=[cell_width] * columns, hAlign="LEFT", spaceBefore=base, spaceAfter=base * 2)
+            rows.append(row if columns == 1 else _paired_grid_rows(row)[0])
+        column_widths = [cell_width] if columns == 1 else [cell_width, gap, cell_width]
+        grid = Table(rows, colWidths=column_widths, hAlign="LEFT", spaceBefore=base, spaceAfter=base * 2)
         grid.setStyle(TableStyle([
-            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), gap),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("TOPPADDING", (0, 0), (-1, -1), gap / 2), ("BOTTOMPADDING", (0, 0), (-1, -1), gap / 2),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ]))
@@ -556,10 +582,11 @@ def create_pdf(
         for index in range(0, len(cells), columns):
             row = cells[index:index + columns]
             row.extend([""] * (columns - len(row)))
-            rows.append(row)
-        grid = Table(rows, colWidths=[cell_width] * columns, hAlign="LEFT", spaceAfter=base * 2)
+            rows.append(row if columns == 1 else _paired_grid_rows(row)[0])
+        column_widths = [cell_width] if columns == 1 else [cell_width, gap, cell_width]
+        grid = Table(rows, colWidths=column_widths, hAlign="LEFT", spaceAfter=base * 2)
         grid.setStyle(TableStyle([
-            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), gap),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("TOPPADDING", (0, 0), (-1, -1), gap / 2), ("BOTTOMPADDING", (0, 0), (-1, -1), gap / 2),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ]))
@@ -579,14 +606,10 @@ def create_pdf(
             )
             for block in card_blocks
         ]
-        rows: list[list[Any]] = []
-        for index in range(0, len(cells), 2):
-            row = cells[index:index + 2]
-            row.extend([""] * (2 - len(row)))
-            rows.append(row)
-        grid = Table(rows, colWidths=[cell_width, cell_width], hAlign="LEFT", spaceAfter=base * 3)
+        rows = _paired_grid_rows(cells)
+        grid = Table(rows, colWidths=[cell_width, gap, cell_width], hAlign="LEFT", spaceAfter=base * 3)
         grid.setStyle(TableStyle([
-            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), gap),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("TOPPADDING", (0, 0), (-1, -1), gap / 2), ("BOTTOMPADDING", (0, 0), (-1, -1), gap / 2),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ]))

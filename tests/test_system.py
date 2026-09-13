@@ -4,13 +4,23 @@ from pathlib import Path
 
 import pytest
 from pypdf import PdfReader
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 import kolo_design.cli as cli_module
 from kolo_design.composition import select_composition, validate_composition
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
 from kolo_design.network import FetchError, assert_public_url
-from kolo_design.pdf_designer import _bounded_radius, _brand_dark, _eyebrow_color, _legible_foreground, _preferred_foreground, create_pdf
+from kolo_design.pdf_designer import (
+    _bounded_radius,
+    _brand_dark,
+    _cover_alignment,
+    _eyebrow_color,
+    _legible_foreground,
+    _paired_grid_rows,
+    _preferred_foreground,
+    create_pdf,
+)
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
 from kolo_design.util import read_json
 
@@ -31,6 +41,19 @@ def test_accessible_observed_button_foreground_is_preserved() -> None:
 
 def test_button_radius_is_bounded_inside_its_rendered_height() -> None:
     assert _bounded_radius(20, 168, 31) == 15
+
+
+def test_product_and_asymmetric_covers_use_one_left_aligned_grid() -> None:
+    assert _cover_alignment("product_showcase", "center") == TA_LEFT
+    assert _cover_alignment("asymmetric_feature_grid", "right") == TA_LEFT
+    assert _cover_alignment("editorial_narrative", "center") == TA_CENTER
+
+
+def test_paired_grid_uses_an_explicit_middle_gutter() -> None:
+    assert _paired_grid_rows(["one", "two", "three"]) == [
+        ["one", "", "two"],
+        ["three", "", ""],
+    ]
 
 
 def test_brand_dark_can_be_recovered_from_saved_color_evidence() -> None:
