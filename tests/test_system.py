@@ -317,16 +317,28 @@ def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
     assert quality["checks"]["distinct_layout_variants"] >= 3
 
 
-def test_powerpoint_rejects_unsupported_image_formats_before_node() -> None:
+def test_powerpoint_rejects_unsupported_image_formats_before_node(tmp_path: Path) -> None:
+    logo = tmp_path / "logo.svg"
+    logo.write_text('<svg viewBox="0 0 200 50"><path d="M0 0h200v50H0z"/></svg>', encoding="utf-8")
     safe, rejected = _safe_presentation_system({
         "assets": [
             {"kind": "hero-image", "path": "/tmp/unsafe.heif"},
             {"kind": "hero-image", "path": "/tmp/safe.webp"},
-            {"kind": "logo", "path": "/tmp/logo.svg"},
+            {"id": "brand-mark", "kind": "logo", "path": str(logo), "score": 100},
         ]
     })
     assert rejected == ["/tmp/unsafe.heif"]
-    assert [asset["path"] for asset in safe["assets"]] == ["/tmp/safe.webp", "/tmp/logo.svg"]
+    assert [asset["path"] for asset in safe["assets"]] == ["/tmp/safe.webp", str(logo)]
+    assert safe["presentation_logo"]["id"] == "brand-mark"
+
+
+def test_powerpoint_rejects_active_svg_logo(tmp_path: Path) -> None:
+    logo = tmp_path / "unsafe.svg"
+    logo.write_text('<svg viewBox="0 0 100 20"><script>alert(1)</script></svg>', encoding="utf-8")
+    safe, rejected = _safe_presentation_system({"assets": [{"kind": "logo", "path": str(logo)}]})
+    assert rejected == [str(logo)]
+    assert safe["assets"] == []
+    assert safe["presentation_logo"] is None
 
 
 def test_html_renderer_helpers_preserve_markup_and_page_ownership() -> None:

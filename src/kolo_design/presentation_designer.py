@@ -13,8 +13,10 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
+from PIL import Image as PILImage
 from playwright.sync_api import sync_playwright
 
+from .assets import raster_dimensions, select_logo_asset
 from .browser_extract import _browser_executable
 
 from .contracts import validate_design_system, validate_document_request
@@ -25,6 +27,105 @@ from .util import read_json, sha256_bytes, write_json
 
 
 _PRESENTATION_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+_PRESENTATION_LOGO_SUFFIXES = _PRESENTATION_IMAGE_SUFFIXES | {".svg"}
+
+
+def _safe_svg_logo(path: Path) -> bool:
+    """Accept self-contained SVG marks while rejecting active or remote content."""
+    try:
+        payload = path.read_bytes()
+        if len(payload) > 2_000_000 or re.search(br"<!DOCTYPE|<!ENTITY", payload, re.IGNORECASE):
+            return False
+        root = ElementTree.fromstring(payload)
+    except (OSError, ElementTree.ParseError):
+        return False
+    forbidden = {"script", "foreignobject", "iframe", "object", "embed"}
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1].casefold() in forbidden:
+            return False
+        for key, value in element.attrib.items():
+            local_key = key.rsplit("}", 1)[-1].casefold()
+            normalized = str(value).strip().casefold()
+            if local_key.startswith("on"):
+                return False
+            if local_key in {"href", "src"} and normalized and not normalized.startswith("#"):
+                return False
+            if "url(" in normalized and "url(#" not in normalized:
+                return False
+    return True
+
+
+def _select_presentation_logo(system: dict[str, Any]) -> dict[str, Any] | None:
+    """Prefer a real wordmark with enough pixels, while retaining vector marks."""
+    vectors = [
+        asset for asset in system.get("assets", [])
+        if asset.get("kind") == "logo" and Path(str(asset.get("path", ""))).suffix.lower() == ".svg"
+    ]
+    if vectors:
+        selected = dict(max(vectors, key=lambda asset: float(asset.get("score", 0))))
+        selected["visual_luminance"] = _logo_visual_luminance(system, selected)
+        return selected
+
+    ranked: list[tuple[float, dict[str, Any]]] = []
+    for asset in system.get("assets", []):
+        if asset.get("kind") != "logo":
+            continue
+        enriched = select_logo_asset(
+            {"assets": [asset]}, allow_svg=False, max_width=180, max_height=52, minimum_density=1.25
+        )
+        if not enriched:
+            continue
+        width, height = raster_dimensions(Path(str(enriched["path"]))) or (1, 1)
+        ratio = width / max(1, height)
+        source = " ".join(str(asset.get(key, "")) for key in ("source", "provenance")).casefold()
+        semantic = float(asset.get("score", 0)) * 10
+        semantic += 350 if ratio >= 1.8 else 0
+        semantic += 250 if "visible-header-logo" in source else 0
+        ranked.append((semantic + min(width * height / 1000, 300), enriched))
+    if not ranked:
+        return None
+    selected = dict(max(ranked, key=lambda item: item[0])[1])
+    selected["visual_luminance"] = _logo_visual_luminance(system, selected)
+    return selected
+
+
+def _logo_visual_luminance(system: dict[str, Any], selected: dict[str, Any]) -> float | None:
+    """Estimate mark luminance from transparent pixels or an SVG's raster sibling."""
+    selected_path = Path(str(selected.get("path", "")))
+    candidates = [selected]
+    if selected_path.suffix.lower() == ".svg":
+        source_url = selected.get("source_url")
+        candidates.extend(
+            asset for asset in system.get("assets", [])
+            if asset.get("kind") == "logo"
+            and Path(str(asset.get("path", ""))).suffix.lower() in _PRESENTATION_IMAGE_SUFFIXES
+            and (asset.get("source_url") == source_url or asset.get("id") == "primary-logo-raster")
+        )
+    for asset in candidates:
+        path = Path(str(asset.get("path", "")))
+        if path.suffix.lower() not in _PRESENTATION_IMAGE_SUFFIXES:
+            continue
+        try:
+            with PILImage.open(path) as image:
+                rgba = image.convert("RGBA")
+                rgba.thumbnail((128, 128))
+                weighted = total_alpha = 0.0
+                for red, green, blue, alpha in rgba.getdata():
+                    if alpha < 16:
+                        continue
+                    channels = []
+                    for channel in (red, green, blue):
+                        value = channel / 255
+                        channels.append(value / 12.92 if value <= .04045 else ((value + .055) / 1.055) ** 2.4)
+                    pixel_luminance = channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722
+                    weight = alpha / 255
+                    weighted += pixel_luminance * weight
+                    total_alpha += weight
+                if total_alpha:
+                    return round(weighted / total_alpha, 4)
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def _node_runtime() -> Path:
@@ -65,11 +166,19 @@ def _safe_presentation_system(system: dict[str, Any]) -> tuple[dict[str, Any], l
     safe_assets: list[dict[str, Any]] = []
     for asset in safe_system.get("assets", []):
         asset_path = str(asset.get("path", ""))
-        if asset.get("kind") == "hero-image" and Path(asset_path).suffix.lower() not in _PRESENTATION_IMAGE_SUFFIXES:
+        suffix = Path(asset_path).suffix.lower()
+        if asset.get("kind") == "hero-image" and suffix not in _PRESENTATION_IMAGE_SUFFIXES:
+            rejected.append(asset_path)
+            continue
+        if asset.get("kind") == "logo" and (
+            suffix not in _PRESENTATION_LOGO_SUFFIXES
+            or (suffix == ".svg" and not _safe_svg_logo(Path(asset_path)))
+        ):
             rejected.append(asset_path)
             continue
         safe_assets.append(asset)
     safe_system["assets"] = safe_assets
+    safe_system["presentation_logo"] = _select_presentation_logo(safe_system)
     return safe_system, rejected
 
 
@@ -302,6 +411,16 @@ def create_presentation(
             "distinct_layout_variants": len({slide["variant"] for slide in plan["slides"]}),
         },
         "art_direction": plan["art_direction"],
+        "brand_mark": {
+            "asset_id": (render_system.get("presentation_logo") or {}).get("id"),
+            "format": Path(str((render_system.get("presentation_logo") or {}).get("path", ""))).suffix.lower() or None,
+            "source": (render_system.get("presentation_logo") or {}).get("source"),
+            "source_score": (render_system.get("presentation_logo") or {}).get("score"),
+            "source_confidence": (render_system.get("presentation_logo") or {}).get("confidence"),
+            "visual_luminance": (render_system.get("presentation_logo") or {}).get("visual_luminance"),
+            "text_fallback": render_system.get("presentation_logo") is None,
+            "policy": "native vector or density-checked raster; proportions preserved",
+        },
         "preview": {
             "kind": "same-plan HTML composition preview",
             "literal_powerpoint_render": False,

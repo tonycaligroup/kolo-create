@@ -81,8 +81,60 @@ function addOutline(slide, x, y, width, height, color, stroke = 2, radius = 0) {
   preview(slide, `<div style="position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${height}px;border:${stroke}px solid ${color};border-radius:${radius}px"></div>`);
 }
 function addRule(slide, x, y, width, color = accent, height = 4) { addRect(slide, x, y, width, height, color); }
+
+async function prepareLogo(asset) {
+  if (!asset?.path) return null;
+  try {
+    await fs.access(asset.path);
+    const suffix = path.extname(asset.path).toLowerCase();
+    let width = Number(asset.pixel_width || asset.css_width || 0);
+    let height = Number(asset.pixel_height || asset.css_height || 0);
+    if (suffix === ".svg") {
+      const source = await fs.readFile(asset.path, "utf8");
+      const viewBox = source.match(/viewBox=["']\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)\s*["']/i);
+      const explicitWidth = source.match(/<svg[^>]*\bwidth=["']([\d.]+)/i);
+      const explicitHeight = source.match(/<svg[^>]*\bheight=["']([\d.]+)/i);
+      width = Number(viewBox?.[1] || explicitWidth?.[1] || width || 3);
+      height = Number(viewBox?.[2] || explicitHeight?.[1] || height || 1);
+    }
+    if (!width || !height) { width = 3; height = 1; }
+    return { asset, suffix, width, height, aspect: width / height };
+  } catch { return null; }
+}
+
+const preparedLogo = await prepareLogo(system.presentation_logo);
+function addBrandMark(slide, position, fieldColor, options = {}) {
+  if (!preparedLogo) {
+    addText(slide, system.name.toUpperCase(), position.left, position.top, position.width, position.height, options.size || 11,
+      options.color || readable(fieldColor, palette.text), { body: true, bold: true, name: options.name || "brand-label" });
+    return false;
+  }
+  const markLuminance = Number(preparedLogo.asset.visual_luminance);
+  const fieldLuminance = lum(fieldColor);
+  const markContrast = Number.isFinite(markLuminance)
+    ? (Math.max(markLuminance, fieldLuminance) + .05) / (Math.min(markLuminance, fieldLuminance) + .05)
+    : 0;
+  const needsContrastField = options.contrastField ?? markContrast < 2.2;
+  const paddingX = needsContrastField ? 12 : 0;
+  const paddingY = needsContrastField ? 7 : 0;
+  if (needsContrastField) addRect(slide, position.left, position.top, position.width, position.height, background, 0);
+  const availableWidth = position.width - paddingX * 2;
+  const availableHeight = position.height - paddingY * 2;
+  let width = availableWidth;
+  let height = width / preparedLogo.aspect;
+  if (height > availableHeight) { height = availableHeight; width = height * preparedLogo.aspect; }
+  const left = position.left + paddingX;
+  const top = position.top + (position.height - height) / 2;
+  slide.addImage({
+    path: preparedLogo.asset.path, altText: `${system.name} logo`, objectName: options.name || "brand-logo",
+    x: inch(left), y: inch(top), w: inch(width), h: inch(height), sizing: { type: "contain", w: inch(width), h: inch(height) },
+  });
+  preview(slide, `<img alt="${escapeHtml(system.name)} logo" src="${pathToFileURL(preparedLogo.asset.path).href}" style="position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;object-fit:contain;object-position:left center">`);
+  return true;
+}
 function addFooter(slide, index, color = ink) {
-  addText(slide, system.name.toUpperCase(), 72, 668, 500, 24, 10, color, { body: true, bold: true, name: "brand-footer" });
+  addBrandMark(slide, { left: 72, top: 660, width: 128, height: 32 }, previews.get(slide).background,
+    { color, size: 10, name: "brand-footer" });
   addText(slide, String(index).padStart(2, "0"), 1160, 668, 48, 24, 10, color, { body: true, align: "right", name: "slide-number" });
 }
 async function addImage(slide, asset, position, alt) {
@@ -170,7 +222,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       const field = contrast(accent, palette.text) >= 4.5 ? accent : background;
       const onField = readable(field, palette.text);
       prepareSlide(slide, field);
-      addText(slide, system.name.toUpperCase(), 72, 54, 500, 30, 11, onField, { body: true, bold: true, name: "brand-label" });
+      addBrandMark(slide, { left: 72, top: 44, width: 190, height: 54 }, field, { color: onField, name: "brand-label" });
       addText(slide, "01", 1090, 40, 120, 70, 38, secondary, { body: true, bold: true, align: "right" });
       addText(slide, balancedHeadline(planSlide.title), 72, 150, 940, 210, 60, onField, { bold: true, name: "title" });
       addRule(slide, 72, 405, 1080, onField, 2);
@@ -178,7 +230,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
     } else if (profile === "product") {
       prepareSlide(slide, surface);
       addRect(slide, 0, 0, 34, 720, accent);
-      addText(slide, system.name.toUpperCase(), 76, 52, 500, 28, 11, secondary, { body: true, bold: true, name: "brand-label" });
+      addBrandMark(slide, { left: 76, top: 42, width: 190, height: 54 }, surface, { color: secondary, name: "brand-label" });
       addText(slide, balancedHeadline(planSlide.title), 76, 142, 590, 205, 52, ink, { bold: true, name: "title" });
       addText(slide, planSlide.subtitle, 76, 405, 540, 150, 20, ink, { body: true, name: "subtitle", vertical: "top" });
       addRect(slide, 720, 74, 470, 550, background, 18);
@@ -192,7 +244,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       const onField = readable(field, "#FFFFFF");
       prepareSlide(slide, field);
       addOutline(slide, 48, 42, 1184, 636, onField, 2);
-      addText(slide, system.name.toUpperCase(), 82, 62, 500, 26, 11, onField, { body: true, bold: true, name: "brand-label" });
+      addBrandMark(slide, { left: 82, top: 54, width: 190, height: 52 }, field, { color: onField, name: "brand-label" });
       addText(slide, balancedHeadline(planSlide.title), 82, 150, useMedia ? 580 : 1000, 210, 54, onField, { bold: true, name: "title" });
       addText(slide, planSlide.subtitle, 82, 420, useMedia ? 520 : 760, 135, 20, onField, { body: true, name: "subtitle", vertical: "top" });
       if (useMedia) {
@@ -201,14 +253,14 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       }
     } else if (profile === "kinetic" && useMedia) {
       await addImage(slide, media[mediaIndex++], { left: 700, top: 0, width: 580, height: 720 }, `${system.name} brand imagery`);
-      addText(slide, system.name.toUpperCase(), 72, 54, 520, 28, 11, accent, { body: true, bold: true, name: "brand-label" });
+      addBrandMark(slide, { left: 72, top: 44, width: 200, height: 56 }, background, { color: accent, name: "brand-label", contrastField: false });
       addText(slide, planSlide.title, 72, 140, 560, 210, 48, ink, { bold: true, name: "title" });
       addText(slide, planSlide.subtitle, 72, 385, 540, 145, 22, ink, { body: true, bold: false, name: "subtitle" });
       addRule(slide, 72, 610, 190, accent, 8);
       addRule(slide, 280, 610, 96, secondary, 8);
     } else {
       addText(slide, "01", 1010, 106, 180, 120, 72, surface, { body: true, bold: true, align: "right" });
-      addText(slide, system.name.toUpperCase(), 72, 58, 600, 28, 11, accent, { body: true, bold: true, name: "brand-label" });
+      addBrandMark(slide, { left: 72, top: 48, width: 200, height: 56 }, background, { color: accent, name: "brand-label", contrastField: false });
       addText(slide, planSlide.title, 72, 182, 880, 165, 56, ink, { bold: true, name: "title" });
       addText(slide, planSlide.subtitle, 330, 404, 790, 120, 23, ink, { body: true, bold: false, name: "subtitle" });
       addRule(slide, 72, 594, 330, accent, 10);
@@ -343,7 +395,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
     if (profile === "editorial") {
       const field = contrast(accent, palette.text) >= 4.5 ? accent : background; const onField = readable(field, palette.text);
       prepareSlide(slide, field);
-      addText(slide, system.name.toUpperCase(), 72, 54, 500, 26, 11, onField, { body: true, bold: true });
+      addBrandMark(slide, { left: 72, top: 44, width: 190, height: 52 }, field, { color: onField, name: "brand-label" });
       addText(slide, planSlide.title, 72, 118, 1060, 90, 40, onField, { bold: true, name: "title" });
       addText(slide, statement?.text || "", 72, 250, 760, 260, 23, onField, { body: true, bold: true, vertical: "top", name: "primary-copy" });
       addRule(slide, 900, 250, 250, onField, 2);
@@ -401,7 +453,8 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addRect(slide, 22, 0, 12, 720, secondary);
     }
     const left = profile === "monochrome" ? 82 : 72;
-    addText(slide, system.name.toUpperCase(), left, 58, 600, 28, 11, profile === "editorial" ? onField : accent, { body: true, bold: true });
+    addBrandMark(slide, { left, top: 48, width: 210, height: 58 }, field,
+      { color: profile === "editorial" ? onField : accent, name: "brand-label" });
     addText(slide, balancedHeadline(planSlide.title), left, 150, profile === "product" ? 850 : 1040, 190, 44, onField, { bold: true, name: "title" });
     addText(slide, copy, left, 348, 850, 128, 21, onField, { body: true, bold: false, vertical: "top", name: "closing-copy" });
     if (action) {
