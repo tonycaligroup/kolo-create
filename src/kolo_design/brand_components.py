@@ -6,15 +6,63 @@ from typing import Any
 from .assets import raster_dimensions
 
 
+def _luminance(value: str) -> float:
+    channels = []
+    for index in (1, 3, 5):
+        channel = int(value[index:index + 2], 16) / 255
+        channels.append(channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def _contrast(left: str, right: str) -> float:
+    low, high = sorted((_luminance(left), _luminance(right)))
+    return (high + 0.05) / (low + 0.05)
+
+
+def _chroma(value: str) -> float:
+    channels = [int(value[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+    return max(channels) - min(channels)
+
+
+def _color_occurrences(system: dict[str, Any], value: str) -> int:
+    return next(
+        (int(item.get("occurrences", 0)) for item in (system.get("evidence") or {}).get("colors", [])
+         if str(item.get("value", "")).upper() == value.upper()),
+        0,
+    )
+
+
+def _supported_secondary(system: dict[str, Any], primary: str, secondary: str) -> bool:
+    if secondary.upper() == primary.upper():
+        return False
+    primary_count = _color_occurrences(system, primary)
+    secondary_count = _color_occurrences(system, secondary)
+    logo_colors = {str(value).upper() for value in (system.get("evidence") or {}).get("logo_colors", [])}
+    return secondary.upper() in logo_colors or secondary_count >= max(12, round(primary_count * 0.3))
+
+
+def _foreground(background: str) -> str:
+    return max(("#111111", "#FFFFFF"), key=lambda value: _contrast(background, value))
+
+
 def build_brand_components(system: dict[str, Any]) -> dict[str, Any]:
     """Normalize observed evidence into portable document component recipes."""
     colors = system["tokens"]["colors"]
     accent = colors["accent"]
-    accent_secondary = colors.get("accent_secondary", accent)
-    brand_dark = colors.get("brand_dark", colors["text"])
-    dual_tone = accent_secondary.upper() != accent.upper()
+    candidate_secondary = colors.get("accent_secondary", accent)
+    dual_tone = _supported_secondary(system, accent, candidate_secondary)
+    accent_secondary = candidate_secondary if dual_tone else accent
+    brand_dark = colors.get("brand_dark")
+    if not brand_dark:
+        surface = colors["surface"]
+        brand_dark = surface if _contrast(colors["background"], surface) >= 1.15 and _contrast(surface, colors["text"]) >= 3 else colors["text"]
+    feature_accent = next(
+        (value for value in (accent, accent_secondary, colors["text"]) if _contrast(brand_dark, value) >= 1.5),
+        _foreground(brand_dark),
+    )
+    monochrome = max(_chroma(accent), _chroma(accent_secondary)) < 0.08
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "brand": {"id": system["id"], "version": system["version"]},
         "preferred_renderer": "reportlab",
         "components": {
@@ -28,8 +76,9 @@ def build_brand_components(system: dict[str, Any]) -> dict[str, Any]:
             "feature-band": {
                 "kind": "panel",
                 "background": brand_dark,
-                "foreground": "#FFFFFF",
-                "accent": accent_secondary,
+                "foreground": _foreground(brand_dark),
+                "accent": feature_accent,
+                "accent_position": "top",
                 "usage": "one lead feature group per document",
             },
             "numbered-feature-grid": {
@@ -37,6 +86,7 @@ def build_brand_components(system: dict[str, Any]) -> dict[str, Any]:
                 "columns": 2,
                 "lead_spans_columns": True,
                 "number_style": "two-digit",
+                "cell_style": "open" if monochrome else "card",
             },
             "media-band": {
                 "kind": "image",
@@ -60,7 +110,7 @@ def build_brand_components(system: dict[str, Any]) -> dict[str, Any]:
 
 def _component_library(system: dict[str, Any]) -> dict[str, Any]:
     library = system.get("brand_components")
-    if isinstance(library, dict) and library.get("schema_version") == 1:
+    if isinstance(library, dict) and library.get("schema_version") == 2:
         return library
     return build_brand_components(system)
 

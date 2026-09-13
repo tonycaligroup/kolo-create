@@ -78,6 +78,14 @@ def _brand_dark(system: dict[str, Any], palette: dict[str, str]) -> str:
     explicit = palette.get("brand_dark")
     if isinstance(explicit, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", explicit):
         return explicit.upper()
+    surface = palette.get("surface")
+    if (
+        isinstance(surface, str)
+        and re.fullmatch(r"#[0-9A-Fa-f]{6}", surface)
+        and _contrast_ratio(palette["background"], surface) >= 1.15
+        and _contrast_ratio(surface, palette["text"]) >= 3
+    ):
+        return surface.upper()
     excluded = {palette.get(role, "").upper() for role in ("background", "surface", "text", "accent", "accent_secondary")}
     candidates: list[tuple[int, str]] = []
     for item in (system.get("evidence") or {}).get("colors", []):
@@ -177,6 +185,7 @@ class BrandedBox(Flowable):
         radius: float,
         padding: float,
         accent: colors.Color | None = None,
+        accent_position: str = "left",
         min_height: float = 0,
         shadow: bool = False,
     ) -> None:
@@ -188,6 +197,7 @@ class BrandedBox(Flowable):
         self.radius = radius
         self.padding = padding
         self.accent = accent
+        self.accent_position = accent_position
         self.min_height = min_height
         self.shadow = shadow
         self._paragraph_size = (0.0, 0.0)
@@ -211,8 +221,16 @@ class BrandedBox(Flowable):
         canvas.setLineWidth(self.border_width)
         canvas.roundRect(0, 0, self.width, self.height, radius, stroke=int(self.border_width > 0), fill=1)
         if self.accent is not None:
+            clip = canvas.beginPath()
+            clip.roundRect(0, 0, self.width, self.height, radius)
+            canvas.saveState()
+            canvas.clipPath(clip, stroke=0, fill=0)
             canvas.setFillColor(self.accent)
-            canvas.roundRect(0, 0, 5, self.height, min(3, radius), stroke=0, fill=1)
+            if self.accent_position == "top":
+                canvas.rect(0, self.height - 5, self.width, 5, stroke=0, fill=1)
+            else:
+                canvas.rect(0, 0, 5, self.height, stroke=0, fill=1)
+            canvas.restoreState()
         paragraph_width, paragraph_height = self._paragraph_size
         self.paragraph.drawOn(canvas, self.padding, (self.height - paragraph_height) / 2)
 
@@ -255,8 +273,8 @@ def create_pdf(
     background = _reportlab_color(palette["background"])
     surface = _reportlab_color(palette["surface"])
     text = _reportlab_color(palette["text"])
-    accent = _reportlab_color(palette["accent"])
-    accent_secondary = _reportlab_color(palette.get("accent_secondary", palette["accent"]))
+    accent = _reportlab_color(marker_recipe.get("primary", palette["accent"]))
+    accent_secondary = _reportlab_color(marker_recipe.get("secondary", palette["accent"]))
     brand_dark_hex = _brand_dark(system, palette)
     brand_dark = _reportlab_color(brand_dark_hex)
     display_font, body_font, label_font = _font_roles(system)
@@ -402,10 +420,7 @@ def create_pdf(
             canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
         if doc.page == 1:
             if family == "editorial_narrative":
-                canvas.setFillColor(accent)
-                canvas.rect(width - 1.18 * inch, 0.62 * inch, 0.76 * inch, 0.76 * inch, stroke=0, fill=1)
-                canvas.setFillColor(accent_secondary)
-                canvas.rect(width - 0.62 * inch, 0.42 * inch, 0.34 * inch, 0.34 * inch, stroke=0, fill=1)
+                pass
             elif family == "asymmetric_feature_grid":
                 canvas.setFillColor(brand_dark)
                 canvas.rect(width * 0.57, 0, width * 0.43, height * 0.72, stroke=0, fill=1)
@@ -422,6 +437,11 @@ def create_pdf(
                 draw_cover_image(canvas, hero_asset["path"], 0, 0, width, height * 0.46)
             elif component_plan["cover"]["placement"] == "side-panel" and hero_asset and Path(hero_asset["path"]).exists():
                 draw_cover_image(canvas, hero_asset["path"], width * 0.57, 0, width * 0.43, height * 0.72)
+            elif component_library["numbered-feature-grid"].get("cell_style") == "open":
+                canvas.setFillColor(text)
+                canvas.rect(width - 1.45 * inch, 0.72 * inch, 1.05 * inch, 5, stroke=0, fill=1)
+                canvas.setFillColor(surface)
+                canvas.rect(width - 1.02 * inch, 0.52 * inch, 0.62 * inch, 5, stroke=0, fill=1)
             else:
                 canvas.setFillColor(accent)
                 canvas.circle(width - 0.82 * inch, 0.82 * inch, 0.48 * inch, stroke=0, fill=1)
@@ -564,14 +584,26 @@ def create_pdf(
         gap = max(8, base * 2)
         columns = 1 if content_width < 430 else 2
         cell_width = (content_width - gap * (columns - 1)) / columns
-        cells = [
-            BrandedBox(
-                _inline_markdown(block["text"]), styles["card"], background=card_background, border=card_border,
-                border_width=card_border_width, radius=card_radius, padding=card_padding, min_height=58,
-                shadow=bool(card_recipe.get("shadow") and card_recipe.get("shadow") != "none"),
-            )
-            for block in card_blocks
-        ]
+        cell_style = component_library["numbered-feature-grid"].get("cell_style", "card")
+        if cell_style == "open":
+            open_style = ParagraphStyle("open-card", parent=styles["card"], textColor=text, leading=15)
+            cells = [
+                Table([[Paragraph(_inline_markdown(block["text"]), open_style)]], colWidths=[cell_width], style=TableStyle([
+                    ("LINEABOVE", (0, 0), (-1, 0), 0.8, surface),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), card_padding),
+                    ("TOPPADDING", (0, 0), (-1, -1), card_padding), ("BOTTOMPADDING", (0, 0), (-1, -1), card_padding),
+                ]))
+                for block in card_blocks
+            ]
+        else:
+            cells = [
+                BrandedBox(
+                    _inline_markdown(block["text"]), styles["card"], background=card_background, border=card_border,
+                    border_width=card_border_width, radius=card_radius, padding=card_padding, min_height=58,
+                    shadow=bool(card_recipe.get("shadow") and card_recipe.get("shadow") != "none"),
+                )
+                for block in card_blocks
+            ]
         rows: list[list[Any]] = []
         for index in range(0, len(cells), columns):
             row = cells[index:index + columns]
@@ -591,14 +623,16 @@ def create_pdf(
         if not card_blocks:
             return
         gap = max(8, base * 2)
+        feature_recipe = component_library["feature-band"]
+        feature_background_hex = feature_recipe["background"]
         asym_lead_style = ParagraphStyle(
             "asym-lead", parent=styles["lead"],
-            textColor=_reportlab_color(_legible_foreground(brand_dark_hex, palette["text"])),
+            textColor=_reportlab_color(feature_recipe["foreground"]),
         )
         first = BrandedBox(
-            _inline_markdown(card_blocks[0]["text"]), asym_lead_style, background=brand_dark,
-            border=card_border, border_width=card_border_width, radius=card_radius, padding=card_padding,
-            accent=accent_secondary, min_height=76, shadow=bool(card_recipe.get("shadow") and card_recipe.get("shadow") != "none"),
+            _inline_markdown(card_blocks[0]["text"]), asym_lead_style, background=_reportlab_color(feature_background_hex),
+            border=_reportlab_color(feature_background_hex), border_width=0, radius=min(8, card_radius), padding=card_padding,
+            accent=_reportlab_color(feature_recipe["accent"]), accent_position="top", min_height=76, shadow=False,
         )
         story.extend([Table([[first]], colWidths=[content_width], style=TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)])), Spacer(1, gap)])
         if len(card_blocks) > 1:
@@ -612,13 +646,21 @@ def create_pdf(
         columns = 1 if content_width < 430 else 2
         cell_width = (content_width - gap * (columns - 1)) / columns
         cells: list[Any] = []
+        cell_style = component_library["numbered-feature-grid"].get("cell_style", "card")
         for index, block in enumerate(card_blocks):
             module_style = ParagraphStyle(f"module-{index}", parent=styles["module"], textColor=text)
-            cells.append(BrandedBox(
-                _inline_markdown(block["text"]), module_style, background=background, border=surface,
-                border_width=0.8, radius=min(8, card_radius), padding=card_padding,
-                accent=accent if index % 2 == 0 else accent_secondary, min_height=72, shadow=False,
-            ))
+            if cell_style == "open":
+                cells.append(Table([[Paragraph(_inline_markdown(block["text"]), module_style)]], colWidths=[cell_width], style=TableStyle([
+                    ("LINEABOVE", (0, 0), (-1, 0), 1.2, text),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), card_padding),
+                    ("TOPPADDING", (0, 0), (-1, -1), card_padding), ("BOTTOMPADDING", (0, 0), (-1, -1), card_padding),
+                ])))
+            else:
+                cells.append(BrandedBox(
+                    _inline_markdown(block["text"]), module_style, background=background, border=surface,
+                    border_width=0.8, radius=min(8, card_radius), padding=card_padding,
+                    accent=accent if index % 2 == 0 else accent_secondary, min_height=72, shadow=False,
+                ))
         rows: list[list[Any]] = []
         for index in range(0, len(cells), columns):
             row = cells[index:index + columns]
@@ -650,7 +692,7 @@ def create_pdf(
                 _inline_markdown(card_blocks[0]["text"]), feature_style,
                 background=_reportlab_color(feature_recipe["background"]), border=_reportlab_color(feature_recipe["background"]),
                 border_width=0, radius=min(10, card_radius), padding=max(15, card_padding),
-                accent=_reportlab_color(feature_recipe["accent"]), min_height=76, shadow=False,
+                accent=_reportlab_color(feature_recipe["accent"]), accent_position="top", min_height=76, shadow=False,
             )
             story.extend([Table([[feature]], colWidths=[content_width], style=TableStyle([
                 ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),

@@ -174,7 +174,13 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
     component_plan = plan.get("component_plan") or select_component_plan(system, plan, blocks)
     validate_component_plan(component_plan)
     section_treatments = {item["section_id"]: item["treatment"] for item in component_plan["sections"]}
-    marker_style = component_plan["library"]["components"]["section-marker"]["style"]
+    component_library = component_plan["library"]["components"]
+    marker_recipe = component_library["section-marker"]
+    marker_style = marker_recipe["style"]
+    accent = marker_recipe.get("primary", accent)
+    accent_secondary = marker_recipe.get("secondary", accent)
+    feature_recipe = component_library["feature-band"]
+    grid_cell_style = component_library["numbered-feature-grid"].get("cell_style", "card")
     logo = _asset_uri(system, "logo")
     cover_component = component_plan["cover"]
     hero_asset = next((asset for asset in system.get("assets") or [] if asset.get("id") == cover_component.get("asset_id")), None)
@@ -235,6 +241,8 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       :root {{
         --background:{background}; --surface:{surface}; --text:{text}; --accent:{accent};
         --accent-2:{accent_secondary}; --brand-dark:{brand_dark}; --eyebrow:{eyebrow};
+        --feature-bg:{feature_recipe['background']}; --feature-text:{feature_recipe['foreground']};
+        --feature-accent:{feature_recipe['accent']};
         --card-bg:{card_background}; --card-text:{card_text}; --button-bg:{button_background};
         --button-text:{button_text}; --display:{_font_stack(system['tokens'], 'display')};
         --body:{_font_stack(system['tokens'], 'body')}; --radius:{radius}px; --card-pad:{card_padding}px;
@@ -277,7 +285,8 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       .card {{ min-height:67px; padding:var(--card-pad); border-radius:var(--radius); background:var(--card-bg); color:var(--card-text); font-size:13px; line-height:1.35; display:flex; align-items:center; border:1px solid color-mix(in srgb, var(--card-text), transparent 86%); }}
       .card strong {{ font-weight:700; }}
       .family-asymmetric_feature_grid .feature-card,.family-product_showcase .feature-card {{ grid-column:1/-1; min-height:76px; font-size:15px; }}
-      .brand-feature-band {{ background:var(--brand-dark); color:#fff; border:0; border-left:6px solid var(--accent-2); padding:18px 20px; }}
+      .brand-feature-band {{ background:var(--feature-bg); color:var(--feature-text); border:0; border-top:5px solid var(--feature-accent); padding:18px 20px; }}
+      .grid-open .card:not(.brand-feature-band) {{ min-height:64px; align-items:flex-start; padding:15px 0; border:0; border-top:1px solid var(--surface); border-radius:0; background:transparent; color:var(--text); }}
       .family-editorial_narrative .card-grid {{ gap:0 24px; }}
       .family-editorial_narrative .card {{ background:transparent; color:var(--text); border:0; border-top:1px solid var(--surface); border-radius:0; padding:13px 0; min-height:58px; }}
       .text-action,.closing-action {{ text-align:right; }}
@@ -294,7 +303,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
     document = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         f'<meta name="generator" content="Kolo Create HTML renderer"><title>{html.escape(plan["title"])}</title><style>{css}</style></head>'
-        f'<body class="family-{family} marker-{marker_style}">'
+        f'<body class="family-{family} marker-{marker_style} grid-{grid_cell_style}">'
         f'<article class="page cover hero-{hero_layout}" data-page="1">'
         f'<div class="cover-copy"><div class="eyebrow">{html.escape(system["name"])} design language</div>'
         f'<h1>{_inline_html(plan["title"])}</h1><p class="subtitle">{_inline_html(cover_subtitle)}</p>{logo_markup}</div>'

@@ -73,6 +73,10 @@ def test_html_cover_uses_hero_image_once(tmp_path: Path) -> None:
 def test_brand_component_plan_is_restrained_and_shared() -> None:
     system = read_json(FIXTURES / "design-system.json")
     system["tokens"]["colors"].update({"accent_secondary": "#F9CB10", "brand_dark": "#000F1E"})
+    system["evidence"]["colors"] = [
+        {"value": system["tokens"]["colors"]["accent"], "occurrences": 100},
+        {"value": "#F9CB10", "occurrences": 50},
+    ]
     system["brand_components"] = build_brand_components(system)
     content = "# Title\n\n## First\n\n- One\n- Two\n\n## Second\n\n- Three\n- Four\n\n## Finish\n\n[Continue](https://example.com)"
     blocks = source_blocks(content)
@@ -82,6 +86,30 @@ def test_brand_component_plan_is_restrained_and_shared() -> None:
     assert component_plan["preferred_renderer"] == "reportlab"
     assert component_plan["library"]["components"]["section-marker"]["style"] == "dual-tone"
     assert sum(section["treatment"] == "feature-band" for section in component_plan["sections"]) == 1
+
+
+def test_brand_components_reject_weak_semantic_secondary_color() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    system["tokens"]["colors"].update({"accent": "#007AFF", "accent_secondary": "#16A34A"})
+    system["evidence"]["colors"] = [
+        {"value": "#007AFF", "occurrences": 251},
+        {"value": "#16A34A", "occurrences": 44},
+    ]
+    library = build_brand_components(system)
+    marker = library["components"]["section-marker"]
+    assert marker["style"] == "solid"
+    assert marker["secondary"] == "#007AFF"
+
+
+def test_monochrome_brand_uses_open_grid_and_dark_surface() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    system["tokens"]["colors"] = {
+        "background": "#000000", "surface": "#292929", "text": "#FFFFFF",
+        "accent": "#FFFFFF", "accent_secondary": "#FFFFFF",
+    }
+    library = build_brand_components(system)
+    assert library["components"]["feature-band"]["background"] == "#292929"
+    assert library["components"]["numbered-feature-grid"]["cell_style"] == "open"
 
 
 def test_component_foreground_falls_back_to_readable_contrast() -> None:
