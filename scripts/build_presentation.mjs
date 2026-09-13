@@ -48,7 +48,8 @@ function prepareSlide(slide, color) {
 }
 function preview(slide, html) { previews.get(slide).elements.push(html); }
 function addText(slide, text, x, y, width, height, size, color = ink, options = {}) {
-  const value = clean(text);
+  const cleaned = clean(text);
+  const value = options.body && cleaned.length > 100 ? balancedCopy(cleaned, width, size) : cleaned;
   slide.addText(value, {
     x: inch(x), y: inch(y), w: inch(width), h: inch(height),
     fontFace: options.body ? bodyFont : displayFont,
@@ -94,6 +95,45 @@ function splitFeature(text) {
   const value = clean(text).replace(/^\d{1,2}[.)]\s*/, "");
   const index = value.indexOf(":");
   return index > 0 && index < 58 ? [value.slice(0, index), value.slice(index + 1).trim()] : [value, ""];
+}
+function balancedHeadline(text) {
+  const value = clean(text);
+  if (value.includes("\n") || value.length < 32) return value;
+  const words = value.split(/\s+/);
+  let best = 1, bestScore = Number.POSITIVE_INFINITY;
+  for (let index = 2; index <= words.length - 2; index++) {
+    const left = words.slice(0, index).join(" ");
+    const right = words.slice(index).join(" ");
+    const score = Math.abs(left.length - right.length);
+    if (score < bestScore) { best = index; bestScore = score; }
+  }
+  return `${words.slice(0, best).join(" ")}\n${words.slice(best).join(" ")}`;
+}
+function balancedCopy(text, width, size) {
+  const value = clean(text);
+  const words = value.split(/\s+/);
+  const averageCharacterWidth = size * 96 / 72 * .65;
+  const capacity = Math.max(18, Math.floor(width / averageCharacterWidth));
+  const lines = [];
+  let line = [];
+  for (const word of words) {
+    const candidate = [...line, word].join(" ");
+    if (line.length && candidate.length > capacity) {
+      lines.push(line);
+      line = [word];
+    } else {
+      line.push(word);
+    }
+  }
+  if (line.length) lines.push(line);
+  while (
+    lines.length > 1
+    && (lines.at(-1).length < 2 || lines.at(-1).join(" ").length < capacity * .35)
+    && lines.at(-2).length > 2
+  ) {
+    lines.at(-1).unshift(lines.at(-2).pop());
+  }
+  return lines.map((parts) => parts.join(" ")).join("\n");
 }
 
 const media = (system.assets || []).filter((asset) => asset.kind === "hero-image" && asset.path);
@@ -148,21 +188,22 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
     });
     addFooter(slide, index + 1);
   } else if (planSlide.archetype === "statement") {
-    addText(slide, planSlide.title, 72, 54, 1120, 72, 34, ink, { bold: true, name: "title" });
+    addText(slide, planSlide.title, 72, 62, 1060, 92, 42, ink, { bold: true, name: "title" });
+    addRule(slide, 72, 184, 210, accent, 7);
     const statement = body.find((block) => block.kind === "callout") || body[0];
-    addText(slide, statement?.text || "", 72, 176, 1040, 240, 38, ink, { bold: true, vertical: "top" });
-    addRule(slide, 72, 470, 300, accent, 8);
+    addText(slide, statement?.text || "", 72, 234, 650, 292, 21, ink, { body: true, bold: true, vertical: "top", name: "primary-copy" });
     const remainder = body.filter((block) => block !== statement).map((block) => clean(block.text)).join("\n\n");
-    addText(slide, remainder, 670, 470, 500, 130, 17, ink, { body: true, bold: false, vertical: "top" });
+    addRule(slide, 800, 292, 380, palette.accent_secondary || accent, 3);
+    addText(slide, remainder, 800, 320, 380, 210, 16, ink, { body: true, bold: false, vertical: "top", name: "supporting-copy" });
     addFooter(slide, index + 1);
   } else if (planSlide.archetype === "closing") {
     const dark = palette.brand_dark || palette.text;
     prepareSlide(slide, dark);
     const onDark = readable(dark, palette.background);
     addText(slide, system.name.toUpperCase(), 72, 58, 600, 28, 11, accent, { body: true, bold: true });
-    addText(slide, planSlide.title, 72, 162, 1040, 150, 48, onDark, { bold: true, name: "title" });
+    addText(slide, balancedHeadline(planSlide.title), 72, 150, 1040, 190, 44, onDark, { bold: true, name: "title" });
     const copy = body.filter((block) => block.kind !== "action").map((block) => clean(block.text)).join("\n\n");
-    addText(slide, copy, 72, 348, 850, 128, 21, onDark, { body: true, bold: false, vertical: "top" });
+    addText(slide, copy, 72, 348, 850, 128, 21, onDark, { body: true, bold: false, vertical: "top", name: "closing-copy" });
     const action = body.find((block) => block.kind === "action");
     if (action) {
       addRule(slide, 72, 552, 420, accent, 5);

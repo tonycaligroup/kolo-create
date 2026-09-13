@@ -126,11 +126,46 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
         all_text: list[str] = []
         shape_count = 0
         image_count = 0
+        oversized_text_walls = 0
+        unbalanced_headlines = 0
+        long_copy_orphans = 0
+        unsafe_controlled_lines = 0
         for index in range(1, slide_count + 1):
             root = ElementTree.fromstring(archive.read(f"ppt/slides/slide{index}.xml"))
             all_text.extend(node.text or "" for node in root.findall(".//a:t", namespaces))
             shape_count += len(root.findall(".//p:sp", namespaces))
             image_count += len(root.findall(".//p:pic", namespaces))
+            for shape in root.findall(".//p:sp", namespaces):
+                shape_text = " ".join(node.text or "" for node in shape.findall(".//a:t", namespaces)).strip()
+                sizes = [int(node.get("sz", "0")) for node in shape.findall(".//a:rPr", namespaces)]
+                max_size = max(sizes, default=0)
+                if len(shape_text) > 150 and max_size > 2_600:
+                    oversized_text_walls += 1
+                paragraphs = [
+                    " ".join(node.text or "" for node in paragraph.findall(".//a:t", namespaces)).strip()
+                    for paragraph in shape.findall(".//a:p", namespaces)
+                ]
+                paragraphs = [paragraph for paragraph in paragraphs if paragraph]
+                if len(shape_text) > 100 and max_size >= 1_400 and (
+                    len(paragraphs) < 2 or any(len(paragraph.split()) < 2 for paragraph in paragraphs)
+                ):
+                    long_copy_orphans += 1
+                name_node = shape.find("p:nvSpPr/p:cNvPr", namespaces)
+                shape_name = name_node.get("name") if name_node is not None else ""
+                safe_line_lengths = {"primary-copy": 36, "supporting-copy": 28, "closing-copy": 47}
+                if shape_name in safe_line_lengths and any(
+                    len(paragraph) > safe_line_lengths[shape_name] for paragraph in paragraphs
+                ):
+                    unsafe_controlled_lines += 1
+                if (
+                    name_node is not None
+                    and shape_name == "title"
+                    and len(shape_text) >= 32
+                    and max_size >= 4_000
+                    and shape.find(".//a:br", namespaces) is None
+                    and len(shape.findall(".//a:p", namespaces)) < 2
+                ):
+                    unbalanced_headlines += 1
             for transform in root.findall(".//a:xfrm", namespaces):
                 offset = transform.find("a:off", namespaces)
                 extent = transform.find("a:ext", namespaces)
@@ -150,7 +185,22 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
             raise RuntimeError(f"PowerPoint package omitted source text: {omitted[:3]}")
         if shape_count < slide_count:
             raise RuntimeError("PowerPoint package did not retain editable text and shapes")
-        return {"editable_shapes": shape_count, "embedded_images": image_count}
+        if oversized_text_walls:
+            raise RuntimeError("PowerPoint package contains oversized walls of body copy")
+        if unbalanced_headlines:
+            raise RuntimeError("PowerPoint package contains a long display headline without a controlled line break")
+        if long_copy_orphans:
+            raise RuntimeError("PowerPoint package contains long copy without controlled, widow-safe line breaks")
+        if unsafe_controlled_lines:
+            raise RuntimeError("PowerPoint package contains a controlled text line that can reflow inside its box")
+        return {
+            "editable_shapes": shape_count,
+            "embedded_images": image_count,
+            "oversized_text_walls": oversized_text_walls,
+            "unbalanced_headlines": unbalanced_headlines,
+            "long_copy_orphans": long_copy_orphans,
+            "unsafe_controlled_lines": unsafe_controlled_lines,
+        }
 
 
 def _render_previews(preview_dir: Path, slide_count: int) -> list[str]:
@@ -240,6 +290,10 @@ def create_presentation(
             "unsupported_images_rejected": len(rejected_images),
             "off_canvas_geometry_absent": True,
             "stale_content_type_targets_repaired": len(repaired_content_types),
+            "oversized_text_walls": package_counts["oversized_text_walls"],
+            "unbalanced_headlines": package_counts["unbalanced_headlines"],
+            "long_copy_orphans": package_counts["long_copy_orphans"],
+            "unsafe_controlled_lines": package_counts["unsafe_controlled_lines"],
         },
         "preview": {
             "kind": "same-plan HTML composition preview",

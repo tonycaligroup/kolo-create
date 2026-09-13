@@ -288,6 +288,10 @@ def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
     assert Path(result["quality"]).exists()
     quality = read_json(Path(result["quality"]))
     assert quality["checks"]["stale_content_type_targets_repaired"] == result["slides"] - 1
+    assert quality["checks"]["oversized_text_walls"] == 0
+    assert quality["checks"]["unbalanced_headlines"] == 0
+    assert quality["checks"]["long_copy_orphans"] == 0
+    assert quality["checks"]["unsafe_controlled_lines"] == 0
 
 
 def test_powerpoint_rejects_unsupported_image_formats_before_node() -> None:

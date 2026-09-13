@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website or renderable frontend source, then use that saved system with user-supplied text and a design prompt to produce a polished PDF or editable PowerPoint. Use when a user wants to capture brand language, generate branded documents or presentations, refresh a saved brand, or reuse a brand across formats.
 metadata:
-  version: "0.13.0"
+  version: "0.13.1"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.13.0
+version: 0.13.1
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: extraction creates a reusable versioned design system; artifact generation consumes an exact saved version without recrawling or modifying it.
@@ -74,6 +74,8 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 Run `npm install --ignore-scripts` in the skill directory during installation so the pinned PptxGenJS runtime lives under persistent `/home/node`; never install it globally. Set `KOLO_PRESENTATION_NODE` only when `node` is not on `PATH`. The deterministic slide planner makes no model calls, preserves every stable source block exactly once, and assigns discrete cover, statement, process, feature-list, section, image-led, or closing roles. The renderer creates a 16:9 deck with editable text, shapes, and images, uses each selected image only once, and chooses Office-safe typography according to the extracted serif or sans-serif role. It returns the PPTX, slide plan, per-slide PNG previews and layout exports, a quality report, and the exact design-system version.
 
 The current Kolo pod has no LibreOffice. Render HTML composition previews from the same layout calls with Chromium, and label them plainly as same-plan previews rather than literal PowerPoint renders. Validate the actual PPTX package separately: require every source block in its text XML, native editable shape elements, the expected slide count, supported images only, and no off-canvas geometry. Accept only PNG, JPEG, and WebP at the PptxGenJS boundary; this excludes the ICNS, JXL, and HEIF parsers named in the current transitive `image-size` advisory.
+
+Never promote a long paragraph to oversized display text. Long copy must use conservative, explicit line fitting, and long headlines must receive balanced line breaks. Fail generation when a controlled line can reflow inside its box or when a final line becomes a one-word widow.
 
 For semantic narrative restructuring, add `--planner llm --model "<workspace-entitled-model>"`. The PowerPoint planner follows the same workspace catalog and credential rules as the PDF planner. Do not convert PDF pages into slide images.
 
