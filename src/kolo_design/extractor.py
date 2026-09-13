@@ -727,28 +727,35 @@ def _save_best_logo(
     visible_logo = (rendered or {}).get("visible_logo") or {}
     if isinstance(visible_logo.get("png"), bytes):
         payload = visible_logo["png"]
-        target = asset_dir / "logo.png"
+        target = asset_dir / "logo-visible.png"
         atomic_write(target, payload)
-        return [{
-            "id": "primary-logo", "kind": "logo", "path": str(target),
+        saved.append({
+            "id": "visible-logo-fallback", "kind": "logo", "path": str(target),
             "source_url": base_url, "source": "visible-header-logo",
             "score": round(float(visible_logo.get("score", 0)), 2),
             "confidence": 0.96, "provenance": "browser-rendered visible header/nav element",
+            "css_width": visible_logo.get("width"), "css_height": visible_logo.get("height"),
             "sha256": sha256_bytes(payload), "media_type": "image/png",
-        }]
+        })
     try:
         from logo_scraper import discover_logo_candidates
 
         discovered = asyncio.run(discover_logo_candidates(base_url))
-        if discovered:
-            candidate = discovered[0]
+        candidate = next(
+            (
+                item for item in discovered
+                if "logo" in item.source and item.source != "og:image"
+            ),
+            None,
+        )
+        if candidate:
             header, encoded = candidate.data_url.split(",", 1)
             payload = base64.b64decode(encoded)
             media_type = header.removeprefix("data:").split(";")[0]
             suffix = ".svg" if "svg" in media_type else ".png"
             target = asset_dir / f"logo{suffix}"
             atomic_write(target, payload)
-            saved.append({
+            saved.insert(0, {
                 "id": "primary-logo",
                 "kind": "logo",
                 "path": str(target),
@@ -761,7 +768,7 @@ def _save_best_logo(
             if suffix == ".svg" and (raster := rasterize_svg(payload)):
                 raster_target = asset_dir / "logo.png"
                 atomic_write(raster_target, raster)
-                saved.append({
+                saved.insert(1, {
                     "id": "primary-logo-raster", "kind": "logo", "path": str(raster_target),
                     "source_url": base_url, "source": "svg-raster-fallback", "score": 199,
                     "sha256": sha256_bytes(raster), "media_type": "image/png",
@@ -769,7 +776,7 @@ def _save_best_logo(
                 return saved
             if suffix != ".svg":
                 return saved
-    except (ImportError, RuntimeError, ValueError):
+    except Exception:
         pass
     for score, url, source in _logo_candidates(soup, base_url)[:12]:
         try:
@@ -782,7 +789,7 @@ def _save_best_logo(
             target = asset_dir / f"logo{suffix}"
             atomic_write(target, payload)
             asset = {
-                "id": "primary-logo-raster" if saved else "primary-logo",
+                "id": "primary-logo",
                 "kind": "logo",
                 "path": str(target),
                 "source_url": final_url,
@@ -792,19 +799,18 @@ def _save_best_logo(
                 "media_type": content_type.split(";")[0],
             }
             if suffix == ".svg":
-                if not saved:
-                    saved.append(asset)
+                saved.insert(0, asset)
                 if raster := rasterize_svg(payload):
                     raster_target = asset_dir / "logo.png"
                     atomic_write(raster_target, raster)
-                    saved.append({
+                    saved.insert(1, {
                         "id": "primary-logo-raster", "kind": "logo", "path": str(raster_target),
                         "source_url": final_url, "source": "svg-raster-fallback", "score": max(0, score - 1),
                         "sha256": sha256_bytes(raster), "media_type": "image/png",
                     })
                     return saved
                 continue
-            saved.append(asset)
+            saved.insert(0, asset)
             return saved
         except Exception:
             continue

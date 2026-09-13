@@ -18,6 +18,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import CondPageBreak, Flowable, HRFlowable, Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from .assets import select_logo_asset
 from .composition import select_composition, validate_composition
 from .contracts import validate_design_system, validate_document_request
 from .planner import DeterministicPlanner, DocumentPlanner, source_blocks, validate_plan
@@ -299,9 +300,8 @@ def create_pdf(
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
     section_background = _recipe_color(section_recipe.get("background"), palette["surface"])
-    logo_asset = next(
-        (asset for asset in system["assets"] if asset.get("kind") == "logo" and Path(asset.get("path", "")).suffix.lower() in {".png", ".jpg", ".jpeg"}),
-        None,
+    logo_asset = select_logo_asset(
+        system, allow_svg=False, max_width=1.5 * inch, max_height=0.65 * inch,
     )
     hero_asset = next(
         (asset for asset in system["assets"] if asset.get("kind") == "hero-image" and Path(asset.get("path", "")).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}),
@@ -449,9 +449,18 @@ def create_pdf(
             cover_subtitle,
         ])
     if logo_asset and Path(logo_asset["path"]).exists():
-        image = Image(logo_asset["path"], width=1.5 * inch, height=0.65 * inch, kind="proportional")
+        pixel_width = float(logo_asset["pixel_width"])
+        pixel_height = float(logo_asset["pixel_height"])
+        scale = min((1.5 * inch) / pixel_width, (0.65 * inch) / pixel_height)
+        image = Image(logo_asset["path"], width=pixel_width * scale, height=pixel_height * scale)
         image.hAlign = "CENTER" if cover_alignment == TA_CENTER else "RIGHT" if cover_alignment == TA_RIGHT else "LEFT"
         story.extend([Spacer(1, base * 5), image])
+    else:
+        wordmark = Paragraph(html.escape(_print_safe_text(system["name"])[0]), ParagraphStyle(
+            "cover-wordmark", fontName=display_font, fontSize=20, leading=24,
+            textColor=text, alignment=cover_alignment,
+        ))
+        story.extend([Spacer(1, base * 5), wordmark])
     story.append(PageBreak())
 
     by_id = {block["id"]: block for block in blocks}

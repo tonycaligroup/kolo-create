@@ -3,10 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PIL import Image as PILImage
 from pypdf import PdfReader
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 import kolo_design.cli as cli_module
+from kolo_design.assets import select_logo_asset
 from kolo_design.composition import select_composition, validate_composition
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
@@ -31,6 +33,25 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 def test_fixture_system_is_valid() -> None:
     validate_design_system(read_json(FIXTURES / "design-system.json"))
+
+
+def test_logo_selection_prefers_vector_for_html(tmp_path: Path) -> None:
+    tiny = tmp_path / "tiny.png"
+    vector = tmp_path / "logo.svg"
+    PILImage.new("RGB", (40, 20), "white").save(tiny)
+    vector.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40"/>')
+    system = {"assets": [
+        {"kind": "logo", "path": str(tiny)},
+        {"kind": "logo", "path": str(vector)},
+    ]}
+    assert select_logo_asset(system, allow_svg=True, max_width=132, max_height=56)["path"] == str(vector)
+
+
+def test_logo_selection_rejects_raster_that_would_be_enlarged(tmp_path: Path) -> None:
+    tiny = tmp_path / "tiny.png"
+    PILImage.new("RGB", (51, 40), "white").save(tiny)
+    system = {"assets": [{"kind": "logo", "path": str(tiny)}]}
+    assert select_logo_asset(system, allow_svg=False, max_width=108, max_height=46.8) is None
 
 
 def test_component_foreground_falls_back_to_readable_contrast() -> None:

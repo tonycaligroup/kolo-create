@@ -43,7 +43,7 @@ def rasterize_svg(payload: bytes) -> bytes | None:
     encoded = base64.b64encode(payload).decode("ascii")
     with sync_playwright() as runtime:
         browser = runtime.chromium.launch(executable_path=executable, headless=True, args=["--disable-dev-shm-usage"])
-        context = browser.new_context(viewport={"width": 1000, "height": 600}, device_scale_factor=1)
+        context = browser.new_context(viewport={"width": 1000, "height": 600}, device_scale_factor=3)
         page = context.new_page()
         try:
             page.set_content(
@@ -199,7 +199,7 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
     assert_public_url(url)
     with sync_playwright() as runtime:
         browser = runtime.chromium.launch(executable_path=executable, headless=True, args=["--disable-dev-shm-usage"])
-        context = browser.new_context(viewport={"width": 1440, "height": 1100}, device_scale_factor=1)
+        context = browser.new_context(viewport={"width": 1440, "height": 1100}, device_scale_factor=2)
 
         def route_request(route: Any) -> None:
             if _literal_private_host(route.request.url):

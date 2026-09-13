@@ -16,6 +16,7 @@ from playwright.sync_api import sync_playwright
 from pypdf import PdfReader
 
 from .browser_extract import _browser_executable
+from .assets import select_logo_asset
 from .composition import select_composition, validate_composition
 from .contracts import validate_design_system, validate_document_request
 from .pdf_designer import (
@@ -51,6 +52,11 @@ def _font_stack(tokens: dict[str, Any], role: str) -> str:
 
 
 def _asset_uri(system: dict[str, Any], kind: str) -> str | None:
+    if kind == "logo":
+        asset = select_logo_asset(system, allow_svg=True, max_width=132, max_height=56)
+        if asset:
+            return Path(str(asset["path"])).resolve().as_uri()
+        return None
     suffixes = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
     for asset in system.get("assets") or []:
         candidate = Path(str(asset.get("path", "")))
