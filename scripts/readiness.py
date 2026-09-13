@@ -18,8 +18,7 @@ browser_candidates = [
 browser = next((value for value in browser_candidates if value and Path(value).exists()), None)
 renderer = shutil.which("pdftoppm")
 node = os.environ.get("KOLO_PRESENTATION_NODE") or shutil.which("node")
-node_modules = Path(os.environ.get("KOLO_PRESENTATION_NODE_MODULES", "")).expanduser()
-presentation_runtime = node_modules / "@oai" / "artifact-tool"
+presentation_runtime = Path(__file__).resolve().parents[1] / "node_modules" / "pptxgenjs"
 status = "pass" if not missing and browser and renderer and node and presentation_runtime.is_dir() else "fail"
 print(json.dumps({
     "status": status,

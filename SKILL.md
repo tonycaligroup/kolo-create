@@ -71,7 +71,9 @@ When the user requests slides, use the saved design system with the same source-
 uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design powerpoint create --system "<design-system.json>" --content "<source.txt-or-md>" --prompt "<presentation direction>" --output "<result.pptx>"
 ```
 
-Set `KOLO_PRESENTATION_NODE_MODULES` to the Node modules directory containing `@oai/artifact-tool`; set `KOLO_PRESENTATION_NODE` only when `node` is not on `PATH`. The deterministic slide planner makes no model calls, preserves every stable source block exactly once, and assigns discrete cover, statement, process, feature-list, section, image-led, or closing roles. The renderer creates a 16:9 deck with editable text, shapes, and images, uses each selected image only once, and chooses Office-safe typography according to the extracted serif or sans-serif role. It returns the PPTX, slide plan, per-slide PNG previews and layout exports, a quality report, and the exact design-system version.
+Run `npm install --ignore-scripts` in the skill directory during installation so the pinned PptxGenJS runtime lives under persistent `/home/node`; never install it globally. Set `KOLO_PRESENTATION_NODE` only when `node` is not on `PATH`. The deterministic slide planner makes no model calls, preserves every stable source block exactly once, and assigns discrete cover, statement, process, feature-list, section, image-led, or closing roles. The renderer creates a 16:9 deck with editable text, shapes, and images, uses each selected image only once, and chooses Office-safe typography according to the extracted serif or sans-serif role. It returns the PPTX, slide plan, per-slide PNG previews and layout exports, a quality report, and the exact design-system version.
+
+The current Kolo pod has no LibreOffice. Render HTML composition previews from the same layout calls with Chromium, and label them plainly as same-plan previews rather than literal PowerPoint renders. Validate the actual PPTX package separately: require every source block in its text XML, native editable shape elements, the expected slide count, supported images only, and no off-canvas geometry. Accept only PNG, JPEG, and WebP at the PptxGenJS boundary; this excludes the ICNS, JXL, and HEIF parsers named in the current transitive `image-size` advisory.
 
 For semantic narrative restructuring, add `--planner llm --model "<workspace-entitled-model>"`. The PowerPoint planner follows the same workspace catalog and credential rules as the PDF planner. Do not convert PDF pages into slide images.
 
@@ -94,7 +96,7 @@ For automatic examples and every user-requested PDF or PowerPoint, use the exact
 }
 ```
 
-4. Open PDFs in Kolo's visible desktop browser with `chromium "<returned PDF path>"`. For PowerPoint, attach the file and open its generated preview folder or PDF preview when Kolo's browser cannot display PPTX directly. Use the bare `chromium` launcher supplied by Kolo; never call `/usr/bin/chromium` or pass a custom profile.
+4. Open PDFs in Kolo's visible desktop browser with `chromium "<returned PDF path>"`. Chromium cannot display PPTX directly, so attach the PPTX and open its first generated HTML composition preview instead. Use the bare `chromium` launcher supplied by Kolo; never call `/usr/bin/chromium` or pass a custom profile.
 5. Report attachment or browser-opening failures plainly, but do not hide a successful artifact if only one delivery surface fails.
 
 Do not use a plain `MEDIA:` directive: Kolo does not reliably render it as a chat attachment. Do not invent a chat target or use a bare UUID.

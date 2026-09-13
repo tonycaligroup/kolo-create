@@ -1,0 +1,9 @@
+{
+  "name": "kolo-create-presentation-runtime",
+  "private": true,
+  "version": "0.13.0",
+  "type": "module",
+  "dependencies": {
+    "pptxgenjs": "4.0.1"
+  }
+}

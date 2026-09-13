@@ -31,7 +31,7 @@ from kolo_design.pdf_designer import (
 )
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
 from kolo_design.presentation_planner import DeterministicPresentationPlanner, validate_presentation_plan
-from kolo_design.presentation_designer import create_presentation
+from kolo_design.presentation_designer import _safe_presentation_system, create_presentation
 from kolo_design.util import read_json
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -270,7 +270,7 @@ def test_presentation_plan_preserves_blocks_and_uses_slide_archetypes() -> None:
     assert {slide["archetype"] for slide in plan["slides"]} >= {"cover", "process", "feature-list", "closing"}
 
 
-@pytest.mark.skipif(not os.environ.get("KOLO_PRESENTATION_NODE_MODULES"), reason="presentation runtime is optional in tests")
+@pytest.mark.skipif(not (Path(__file__).parents[1] / "node_modules" / "pptxgenjs").is_dir(), reason="run npm install for presentation tests")
 def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
     output = tmp_path / "designed.pptx"
     result = create_presentation(
@@ -280,11 +280,26 @@ def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
         output,
     )
     assert result["status"] == "succeeded"
-    assert result["renderer"] == "artifact-tool/1"
+    assert result["renderer"] == "pptxgenjs/1"
     assert result["slides"] == 4
     assert zipfile.is_zipfile(output)
     assert len(result["previews"]) == result["slides"]
+    assert len(result["preview_html"]) == result["slides"]
     assert Path(result["quality"]).exists()
+    quality = read_json(Path(result["quality"]))
+    assert quality["checks"]["stale_content_type_targets_repaired"] == result["slides"] - 1
+
+
+def test_powerpoint_rejects_unsupported_image_formats_before_node() -> None:
+    safe, rejected = _safe_presentation_system({
+        "assets": [
+            {"kind": "hero-image", "path": "/tmp/unsafe.heif"},
+            {"kind": "hero-image", "path": "/tmp/safe.webp"},
+            {"kind": "logo", "path": "/tmp/logo.svg"},
+        ]
+    })
+    assert rejected == ["/tmp/unsafe.heif"]
+    assert [asset["path"] for asset in safe["assets"]] == ["/tmp/safe.webp", "/tmp/logo.svg"]
 
 
 def test_html_renderer_helpers_preserve_markup_and_page_ownership() -> None:

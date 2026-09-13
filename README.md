@@ -11,6 +11,7 @@ The second stage never recrawls or mutates the brand. This keeps artifacts repro
 
 ```sh
 uv sync --frozen
+npm install --ignore-scripts
 
 uv run kolo-design create design-system \
   --url "https://kolo.ai" \
@@ -42,7 +43,9 @@ uv run kolo-design powerpoint create \
   --output "./output/kolo-create.pptx"
 ```
 
-PowerPoint generation uses native editable text, shapes, and images through the JavaScript presentation runtime. Set `KOLO_PRESENTATION_NODE_MODULES` to the `node_modules` directory containing `@oai/artifact-tool`; optionally set `KOLO_PRESENTATION_NODE` when `node` is not on `PATH`.
+PowerPoint generation uses PptxGenJS 4.0.1 installed locally in the skill directory. It creates native editable text, shapes, and images. Because Kolo's current pod does not include LibreOffice, Chromium renders a same-plan HTML composition preview while code separately checks the real PPTX package for source-text coverage, editable shapes, slide count, and off-canvas geometry. The preview is not represented as a literal PowerPoint render. `KOLO_PRESENTATION_NODE` is optional when `node` is not on `PATH`.
+
+PptxGenJS currently brings an `image-size` advisory affecting ICNS, JXL, and HEIF parsing. Kolo Create never passes those formats to the renderer: the presentation boundary accepts only PNG, JPEG, and WebP assets.
 
 Website extraction prefers Chromium-rendered computed styles, dismisses common consent overlays, captures a clean source screenshot and screen-media source-webpage PDF, and falls back to bounded static HTML/CSS extraction. Frontend source ingestion accepts a local directory, ZIP, or public HTTPS GitHub repository and renders an existing `index.html`, `dist`, `build`, `out`, `public`, or Storybook static output on loopback. If no static route exists, it renders a deterministic source-derived component specimen and records route fidelity as unverified. It never runs package scripts or backend code, and blocks external requests during the source render. The source PDF uses backgrounds, bounded lazy-content loading, and a frozen visual state. A low-resolution raster sanity check grades the export and tests whether proposed semantic colors actually appear in either rendered artifact. Unsupported secondary accents collapse to the primary accent, while unsupported dark roles can be replaced only by a visibly supported dark candidate. The browser path can recover sites that reject the lightweight HTTP client while still rejecting error pages. Palette scoring distinguishes page, surface, text, primary accent, secondary accent, and dark brand-support roles; derives transparent-root canvases from dominant painted regions; rejects browser-default and unpainted stylesheet colors; and excludes detected consent or modal overlays. Logo discovery prefers the visible header wordmark—including text-rendered brand links—over social-preview artwork, calls to action are ranked by semantic purpose rather than frequency alone, and large visible media is stored with semantic labels, dimensions, role, and provenance. Major selections retain confidence and provenance. It rejects private-network website targets and validates every HTTP redirect.
 

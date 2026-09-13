@@ -21,13 +21,16 @@ Keep generated design systems and documents outside the replaceable skill direct
 ```sh
 cd /home/node/.openclaw/workspace-main/skills/kolo-create
 uv sync --frozen
+npm install --ignore-scripts
 uv run python scripts/readiness.py
 uv run --extra dev pytest -q
 ```
 
 If Chromium is not `/usr/local/bin/chromium`, set `KOLO_CHROMIUM_PATH` to the actual executable.
 
-PowerPoint generation also requires Node.js and `@oai/artifact-tool`. Set `KOLO_PRESENTATION_NODE_MODULES` to the `node_modules` directory containing that package. If Node.js is not on `PATH`, set `KOLO_PRESENTATION_NODE` to its executable. The readiness command verifies both before the first extraction because every new design system now receives an automatic PowerPoint example.
+PowerPoint generation requires Node.js and the repository's pinned PptxGenJS dependency. Install it locally with `npm install --ignore-scripts`; do not install it globally. The local `node_modules` persists with the skill under `/home/node`. If Node.js is not on `PATH`, set `KOLO_PRESENTATION_NODE` to its executable. The readiness command verifies the runtime before the first extraction because every new design system receives an automatic PowerPoint example.
+
+The current Kolo pod does not contain LibreOffice. Kolo Create therefore produces same-plan HTML/PNG slide previews with Chromium and validates the actual PPTX through its OOXML package. The quality report clearly marks that these are composition previews, not literal PowerPoint renders.
 
 ## First Kolo trial
 
