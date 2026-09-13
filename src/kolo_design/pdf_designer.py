@@ -15,6 +15,7 @@ from reportlab.lib.pagesizes import A4, LETTER, landscape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfmetrics
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import CondPageBreak, Flowable, HRFlowable, Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .composition import select_composition, validate_composition
@@ -261,10 +262,26 @@ def create_pdf(
     button_height = _number(primary_button.get("typical_height"), 38, 32, 52)
     button_radius = _number(primary_button.get("radius"), 16, 0, button_height / 2)
     button_font_size = _number(primary_button.get("font_size"), 10, 9, 16)
+    button_border_hex = (
+        primary_button.get("border_color")
+        if isinstance(primary_button.get("border_color"), str)
+        and re.fullmatch(r"#[0-9A-Fa-f]{6}", primary_button["border_color"])
+        else button_background_hex
+    )
+    button_border = _reportlab_color(button_border_hex)
+    button_border_width = _number(primary_button.get("border_width"), 0, 0, 2)
     eyebrow_hex = _eyebrow_color(palette)
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
     section_background = _recipe_color(section_recipe.get("background"), palette["surface"])
+    logo_asset = next(
+        (asset for asset in system["assets"] if asset.get("kind") == "logo" and Path(asset.get("path", "")).suffix.lower() in {".png", ".jpg", ".jpeg"}),
+        None,
+    )
+    hero_asset = next(
+        (asset for asset in system["assets"] if asset.get("kind") == "hero-image" and Path(asset.get("path", "")).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}),
+        None,
+    )
 
     output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -296,6 +313,21 @@ def create_pdf(
         label_width = pdfmetrics.stringWidth(plain_label, label_font, button_font_size)
         return min(max(button_width, label_width + 28), maximum)
 
+    def draw_cover_image(canvas: Any, image_path: str, x: float, y: float, box_width: float, box_height: float) -> None:
+        source = ImageReader(image_path)
+        image_width, image_height = source.getSize()
+        scale = max(box_width / max(1, image_width), box_height / max(1, image_height))
+        draw_width, draw_height = image_width * scale, image_height * scale
+        clip = canvas.beginPath()
+        clip.rect(x, y, box_width, box_height)
+        canvas.saveState()
+        canvas.clipPath(clip, stroke=0, fill=0)
+        canvas.drawImage(
+            source, x + (box_width - draw_width) / 2, y + (box_height - draw_height) / 2,
+            width=draw_width, height=draw_height, preserveAspectRatio=True, mask="auto",
+        )
+        canvas.restoreState()
+
     def decorate(canvas: Any, doc: Any) -> None:
         canvas.saveState()
         canvas.setFillColor(background)
@@ -308,6 +340,8 @@ def create_pdf(
             canvas.setFillColor(accent_secondary)
             canvas.rect(width * 0.64, height - 12, width * 0.36, 12, stroke=0, fill=1)
         elif family == "numbered_process":
+            canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
+        elif family == "product_showcase":
             canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
         else:
             canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
@@ -326,6 +360,8 @@ def create_pdf(
                 canvas.setFillColor(surface)
                 canvas.setFont(display_font, min(170, width * 0.28))
                 canvas.drawRightString(width - 0.45 * inch, 0.8 * inch, "01")
+            elif family == "product_showcase" and hero_asset and Path(hero_asset["path"]).exists():
+                draw_cover_image(canvas, hero_asset["path"], 0, 0, width, height * 0.46)
             else:
                 canvas.setFillColor(accent)
                 canvas.circle(width - 0.82 * inch, 0.82 * inch, 0.48 * inch, stroke=0, fill=1)
@@ -338,11 +374,28 @@ def create_pdf(
             canvas.drawRightString(width - 0.72 * inch, 0.35 * inch, f"{doc.page - 1:02d}")
         canvas.restoreState()
 
-    story: list[Any] = [Spacer(1, height * (0.09 if family == "modular_announcement" else 0.13))]
+    story: list[Any] = [Spacer(1, height * (0.08 if family in {"modular_announcement", "product_showcase"} else 0.13))]
     story.append(Paragraph(html.escape(f"{system['name']} DESIGN LANGUAGE".upper()), styles["eyebrow"]))
     cover_title = Paragraph(_inline_markdown(plan["title"]), styles["cover"])
-    cover_subtitle = Paragraph(_inline_markdown(plan["subtitle"]), styles["subtitle"])
-    if family == "modular_announcement":
+    cover_source_id: str | None = None
+    cover_subtitle_text = plan["subtitle"]
+    if family == "product_showcase":
+        opening_callout = next((block for block in blocks[:3] if block["kind"] == "callout"), None)
+        if opening_callout:
+            cover_subtitle_text = opening_callout["text"]
+            cover_source_id = opening_callout["id"]
+    cover_subtitle = Paragraph(_inline_markdown(cover_subtitle_text), styles["subtitle"])
+    if family == "product_showcase":
+        product_cover = ParagraphStyle(
+            "product-cover", parent=styles["cover"], fontSize=min(46, max(40, h1_size)),
+            leading=min(50, max(44, h1_size * 1.05)), alignment=TA_LEFT,
+        )
+        story.extend([
+            Paragraph(_inline_markdown(plan["title"]), product_cover),
+            HRFlowable(width="24%", thickness=5, color=accent, spaceBefore=0, spaceAfter=base * 3, hAlign="LEFT"),
+            cover_subtitle,
+        ])
+    elif family == "modular_announcement":
         story.extend([
             cover_title,
             HRFlowable(width="22%", thickness=4, color=accent, spaceBefore=0, spaceAfter=base * 3, hAlign="LEFT"),
@@ -356,9 +409,8 @@ def create_pdf(
         ])
     else:
         story.extend([cover_title, Table([[""]], colWidths=[1.2 * inch], rowHeights=[5], style=TableStyle([("BACKGROUND", (0, 0), (-1, -1), accent)])), Spacer(1, base * 3), cover_subtitle])
-    logo = next((asset for asset in system["assets"] if asset.get("kind") == "logo" and Path(asset.get("path", "")).suffix.lower() in {".png", ".jpg", ".jpeg"}), None)
-    if logo and Path(logo["path"]).exists():
-        image = Image(logo["path"], width=1.5 * inch, height=0.65 * inch, kind="proportional")
+    if logo_asset and Path(logo_asset["path"]).exists():
+        image = Image(logo_asset["path"], width=1.5 * inch, height=0.65 * inch, kind="proportional")
         image.hAlign = "LEFT"
         story.extend([Spacer(1, base * 5), image])
     story.append(PageBreak())
@@ -370,6 +422,8 @@ def create_pdf(
     def add_standard(block: dict[str, str], *, lead: bool = False) -> None:
         nonlocal skipped_cover_heading
         kind, value = block["kind"], block["text"]
+        if block["id"] == cover_source_id:
+            return
         safe = _inline_markdown(value)
         if kind == "heading1" and not skipped_cover_heading and value.strip().lower() == plan["title"].strip().lower():
             skipped_cover_heading = True
@@ -384,7 +438,7 @@ def create_pdf(
                     HRFlowable(width="100%", thickness=0.8, color=accent, spaceBefore=base * 3, spaceAfter=base * 1.4, hAlign="LEFT"),
                     Paragraph(safe, styles["h2"]),
                 ])
-            elif family == "modular_announcement":
+            elif family in {"modular_announcement", "product_showcase"}:
                 story.extend([
                     CondPageBreak(145),
                     HRFlowable(width="18%", thickness=4, color=accent_secondary, spaceBefore=base * 2.5, spaceAfter=base * 1.5, hAlign="LEFT"),
@@ -417,8 +471,7 @@ def create_pdf(
             action_width = fitted_button_width(safe, min(250, document.width))
             action = BrandedBox(
                 safe, styles["action"], background=_reportlab_color(button_background_hex),
-                border=_recipe_color(primary_button.get("border_color"), palette["accent"]),
-                border_width=_number(primary_button.get("border_width"), 0, 0, 2),
+                border=button_border, border_width=button_border_width,
                 radius=button_radius, padding=10, min_height=button_height,
                 shadow=bool(primary_button.get("shadow") and primary_button.get("shadow") != "none"),
             )
@@ -502,6 +555,33 @@ def create_pdf(
         story.append(grid)
         component_usage["cards"] += len(card_blocks)
 
+    def add_product_grid(card_blocks: list[dict[str, str]]) -> None:
+        if not card_blocks:
+            return
+        gap = max(10, base * 2.5)
+        cell_width = (document.width - gap) / 2
+        cells = [
+            BrandedBox(
+                _inline_markdown(block["text"]), styles["module"], background=card_background,
+                border=card_background, border_width=0, radius=min(10, card_radius),
+                padding=max(12, card_padding), min_height=74, shadow=False,
+            )
+            for block in card_blocks
+        ]
+        rows: list[list[Any]] = []
+        for index in range(0, len(cells), 2):
+            row = cells[index:index + 2]
+            row.extend([""] * (2 - len(row)))
+            rows.append(row)
+        grid = Table(rows, colWidths=[cell_width, cell_width], hAlign="LEFT", spaceAfter=base * 3)
+        grid.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), gap),
+            ("TOPPADDING", (0, 0), (-1, -1), gap / 2), ("BOTTOMPADDING", (0, 0), (-1, -1), gap / 2),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(grid)
+        component_usage["cards"] += len(card_blocks)
+
     step_number = 0
 
     def add_numbered_steps(step_blocks: list[dict[str, str]]) -> None:
@@ -548,7 +628,7 @@ def create_pdf(
                 )
                 action = BrandedBox(
                     safe, close_action_style, background=_reportlab_color(button_background_hex),
-                    border=_reportlab_color(button_background_hex), border_width=0,
+                    border=button_border, border_width=button_border_width,
                     radius=button_radius, padding=8, min_height=button_height,
                 )
                 close_button_width = fitted_button_width(safe, document.width * 0.44)
@@ -583,6 +663,8 @@ def create_pdf(
 
     sections = plan["layout"]["sections"]
     for section_index, section in enumerate(sections):
+        if family == "product_showcase" and section_index == 3:
+            story.append(PageBreak())
         section_blocks = [by_id[block_id] for block_id in section["block_ids"]]
         if (
             section_index == len(sections) - 1
@@ -606,6 +688,8 @@ def create_pdf(
                 add_modular_grid(pending_cards)
             elif family == "asymmetric_feature_grid":
                 add_asymmetric_grid(pending_cards)
+            elif family == "product_showcase":
+                add_product_grid(pending_cards)
             elif section["variant"] == "card_grid":
                 add_card_grid(pending_cards)
             else:
@@ -661,7 +745,9 @@ def create_pdf(
                 "background": button_background_hex,
                 "foreground": button_foreground_hex,
                 "text_contrast": round(_contrast_ratio(button_background_hex, button_foreground_hex), 2),
-                "radius": _number(primary_button.get("radius"), 16, 0, 20),
+                "border_color": button_border_hex,
+                "border_width": button_border_width,
+                "radius": button_radius,
             },
             "section": {
                 "background": section_recipe.get("background") or palette["background"],

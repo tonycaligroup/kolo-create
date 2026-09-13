@@ -61,6 +61,118 @@ def rasterize_svg(payload: bytes) -> bytes | None:
             browser.close()
 
 
+def _dismiss_overlays(page: Any) -> dict[str, Any]:
+    """Dismiss common consent UI before sampling or taking the evidence screenshot."""
+    result = page.evaluate(
+        """() => {
+          const overlayWords = /(cookie|consent|privacy|tracking|preference)/i;
+          const choices = [
+            /^(decline|reject)( all)?$/i,
+            /^(only |use )?(necessary|essential)( cookies)?$/i,
+            /^(continue without accepting|do not sell)$/i,
+            /^(accept|allow|agree)( all)?$/i
+          ];
+          const controls = [...document.querySelectorAll('button,[role="button"],input[type="button"],input[type="submit"]')]
+            .filter((el) => {
+              const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+              return r.width > 1 && r.height > 1 && s.display !== 'none' && s.visibility !== 'hidden';
+            });
+          for (const pattern of choices) {
+            const control = controls.find((el) => {
+              const label = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
+              if (!pattern.test(label)) return false;
+              const parent = el.closest('[role="dialog"],dialog,[id*="cookie" i],[class*="cookie" i],[id*="consent" i],[class*="consent" i]');
+              return Boolean(parent && overlayWords.test(parent.innerText || parent.getAttribute('aria-label') || ''));
+            });
+            if (control) {
+              const label = (control.innerText || control.value || control.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
+              control.click();
+              return { clicked: label, hidden: 0 };
+            }
+          }
+          return { clicked: '', hidden: 0 };
+        }"""
+    )
+    page.wait_for_timeout(650)
+    hidden = page.evaluate(
+        """() => {
+          const words = /(cookie|consent|privacy|tracking|preference)/i;
+          const candidates = [...document.querySelectorAll('[role="dialog"],dialog,[id*="cookie" i],[class*="cookie" i],[id*="consent" i],[class*="consent" i]')];
+          let hidden = 0;
+          for (const el of candidates) {
+            const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+            const text = el.innerText || el.getAttribute('aria-label') || '';
+            if (r.width > 1 && r.height > 1 && s.display !== 'none' && words.test(text)) {
+              el.style.setProperty('display', 'none', 'important');
+              hidden += 1;
+            }
+          }
+          if (hidden) {
+            document.documentElement.style.setProperty('overflow', 'auto', 'important');
+            document.body.style.setProperty('overflow', 'auto', 'important');
+          }
+          return hidden;
+        }"""
+    )
+    result["hidden"] = hidden
+    return result
+
+
+def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
+    """Capture the strongest visible header/nav wordmark before metadata images."""
+    brand = (urlparse(base_url).hostname or "").lower().removeprefix("www.").split(".")[0]
+    locator = page.locator(
+        'header img,header svg,nav img,nav svg,a[href="/"] img,a[href="/"] svg,'
+        '[class*="logo" i] img,[class*="logo" i] svg,img[alt*="logo" i]'
+    )
+    ranked: list[tuple[float, Any, dict[str, Any]]] = []
+    for index in range(min(locator.count(), 80)):
+        candidate = locator.nth(index)
+        try:
+            info = candidate.evaluate(
+                """(el, brand) => {
+                  const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+                  const hint = [el.id, el.className, el.getAttribute('alt'), el.getAttribute('aria-label'), el.getAttribute('src')]
+                    .filter((value) => typeof value === 'string').join(' ').toLowerCase();
+                  const inHeader = Boolean(el.closest('header,nav'));
+                  const homeLink = Boolean(el.closest('a[href="/"],a[href$=".com/"],a[href$=".ai/"]'));
+                  return {
+                    visible: r.width >= 35 && r.height >= 12 && r.width <= 500 && r.height <= 180 &&
+                      s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || 1) > 0 && r.bottom > 0 && r.top < innerHeight,
+                    width: r.width, height: r.height, y: r.y, hint, inHeader, homeLink,
+                    brandMatch: Boolean(brand && hint.includes(brand))
+                  };
+                }""",
+                brand,
+            )
+            if not info.get("visible"):
+                continue
+            aspect = float(info["width"]) / max(1.0, float(info["height"]))
+            score = (
+                (70 if info.get("inHeader") else 0)
+                + (45 if info.get("homeLink") else 0)
+                + (55 if "logo" in str(info.get("hint", "")) else 0)
+                + (35 if info.get("brandMatch") else 0)
+                + (20 if float(info.get("y", 9999)) < 180 else 0)
+                + (15 if 1.5 <= aspect <= 10 else 0)
+            )
+            ranked.append((score, candidate, info))
+        except Exception:
+            continue
+    for score, candidate, info in sorted(ranked, key=lambda item: item[0], reverse=True):
+        try:
+            return {
+                "png": candidate.screenshot(type="png", omit_background=True),
+                "score": score,
+                "width": round(float(info["width"])),
+                "height": round(float(info["height"])),
+                "hint": str(info.get("hint", ""))[:240],
+            }
+        except Exception:
+            continue
+    return None
+
+
 def browser_snapshot(url: str) -> dict[str, Any] | None:
     executable = _browser_executable()
     if not executable:
@@ -86,6 +198,8 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
                 pass
             page.wait_for_timeout(1200)
             assert_public_url(page.url)
+            overlay_actions = _dismiss_overlays(page)
+            visible_logo = _visible_logo(page, page.url)
             snapshot = page.evaluate(
                 """() => {
                   const visible = [...document.querySelectorAll('body *')].filter((el) => {
@@ -133,6 +247,7 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
                       },
                       style: {
                         color: s.color, background: s.backgroundColor, border_color: s.borderColor,
+                        background_image: s.backgroundImage,
                         border_width: s.borderWidth, border_radius: s.borderRadius, box_shadow: s.boxShadow,
                         font_family: s.fontFamily, font_size: s.fontSize, font_weight: s.fontWeight,
                         line_height: s.lineHeight, letter_spacing: s.letterSpacing, text_align: s.textAlign,
@@ -154,6 +269,8 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
             )
             snapshot["url"] = page.url
             snapshot["response_status"] = response.status if response else None
+            snapshot["overlay_actions"] = overlay_actions
+            snapshot["visible_logo"] = visible_logo
             snapshot["screenshot"] = page.screenshot(full_page=False, type="png")
             return snapshot
         finally:

@@ -99,8 +99,10 @@ def test_composition_uses_brand_and_content_signals() -> None:
     plan = DeterministicPlanner().plan(content, "Create an overview", blocks)
     illustration_system = {"visual_language": {"primary_mode": "illustration-led", "density": "balanced"}}
     dense_media_system = {"visual_language": {"primary_mode": "media-led", "density": "dense"}}
+    product_system = {"visual_language": {"primary_mode": "product-led", "density": "balanced"}}
     assert select_composition(illustration_system, plan, blocks, "Create an overview")["family"] == "modular_announcement"
     assert select_composition(dense_media_system, plan, blocks, "Create an overview")["family"] == "asymmetric_feature_grid"
+    assert select_composition(product_system, plan, blocks, "Create an overview")["family"] == "product_showcase"
     assert select_composition({}, plan, blocks, "Create an overview")["family"] == "numbered_process"
 
 
@@ -140,7 +142,7 @@ def test_pdf_vertical_slice(tmp_path: Path) -> None:
     assert Path(result["layout_plan"]).exists()
     layout = read_json(Path(result["layout_plan"]))
     assert layout["composition"]["family"] in {
-        "editorial_narrative", "asymmetric_feature_grid", "numbered_process", "modular_announcement"
+        "editorial_narrative", "asymmetric_feature_grid", "numbered_process", "modular_announcement", "product_showcase"
     }
 
 

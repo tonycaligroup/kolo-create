@@ -9,6 +9,7 @@ COMPOSITION_FAMILIES = {
     "asymmetric_feature_grid",
     "numbered_process",
     "modular_announcement",
+    "product_showcase",
 }
 
 _EXPLICIT_ALIASES = (
@@ -16,6 +17,7 @@ _EXPLICIT_ALIASES = (
     ("numbered_process", ("numbered process", "step-by-step", "step by step")),
     ("modular_announcement", ("modular announcement", "announcement layout")),
     ("editorial_narrative", ("editorial narrative", "magazine layout")),
+    ("product_showcase", ("product showcase", "product-led", "product led")),
 )
 
 
@@ -82,6 +84,8 @@ def select_composition(
         add("editorial_narrative", 5, "typography-led brand")
     elif mode == "interface-led":
         add("numbered_process", 4, "interface-led brand")
+    elif mode == "product-led":
+        add("product_showcase", 7, "product-led brand")
     elif mode == "media-led":
         if density == "sparse":
             add("editorial_narrative", 5, "sparse media-led brand")
@@ -94,6 +98,7 @@ def select_composition(
         "numbered_process",
         "modular_announcement",
         "asymmetric_feature_grid",
+        "product_showcase",
         "editorial_narrative",
     )
     family = max(precedence, key=lambda candidate: (scores[candidate], -precedence.index(candidate)))

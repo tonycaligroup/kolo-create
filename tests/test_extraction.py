@@ -142,6 +142,32 @@ def test_frequent_saturated_dark_color_is_preserved_as_brand_support() -> None:
     assert colors["brand_dark"] == "#00162B"
 
 
+def test_browser_default_blue_cannot_become_brand_dark() -> None:
+    rendered = {
+        "root_styles": {"body": {"background": "#FFFFFF", "color": "#000000"}},
+        "viewport": {"width": 1000, "height": 1000},
+        "elements": [
+            {
+                "tag": "main", "rect": {"width": 1000, "height": 900},
+                "viewport": {"visible": True, "area_ratio": 0.9}, "semantic": {"region": "main", "overlay": False},
+                "style": {"background": "#FFFFFF", "color": "#000000", "border_color": "#0000EE"},
+            },
+            *[
+                {
+                    "tag": "a", "href": True, "rect": {"width": 120, "height": 32},
+                    "viewport": {"visible": True, "area_ratio": 0.004}, "semantic": {"region": "nav", "overlay": False},
+                    "style": {"background": "transparent", "color": "#0000EE", "border_color": "#0000EE"},
+                }
+                for _ in range(12)
+            ],
+        ],
+    }
+    colors = _refine_rendered_colors(
+        {"background": "#FFFFFF", "surface": "#F8F8F8", "text": "#000000", "accent": "#1428A0"}, rendered
+    )
+    assert colors.get("brand_dark") != "#0000EE"
+
+
 def test_overlay_colors_are_excluded_from_palette_and_visual_language() -> None:
     rendered = {
         "root_styles": {"body": {"background": "#FFFFFF", "color": "#111111"}},
@@ -267,3 +293,50 @@ def test_component_inventory_separates_primary_and_secondary_buttons() -> None:
     assert inventory["buttons"]["primary"]["background"] == "#007AFF"
     assert inventory["buttons"]["primary"]["foreground"] == "#FFFFFF"
     assert inventory["buttons"]["secondary"]["background"] == "#F1F5F9"
+
+
+def test_semantic_product_cta_outranks_repeated_navigation_links() -> None:
+    def element(text: str, region: str, background: str, border: str, *, tag: str = "a") -> dict:
+        return {
+            "tag": tag, "role": "button" if tag == "button" else "", "href": tag == "a", "text_sample": text,
+            "rect": {"width": 150, "height": 42},
+            "viewport": {"visible": True, "area_ratio": 0.005}, "semantic": {"region": region, "overlay": False},
+            "style": {
+                "color": "#000000", "background": background, "border_color": border,
+                "border_width": "1px", "border_radius": "22px", "box_shadow": "none",
+                "font_family": "Arial", "font_size": "14px", "font_weight": "700",
+                "line_height": "20px", "letter_spacing": "normal", "text_align": "center",
+                "padding": "10px 16px 10px 16px", "object_fit": "fill",
+            },
+        }
+
+    inventory = _component_inventory(
+        [*[element("Support", "nav", "transparent", "transparent") for _ in range(8)],
+         element("Buy now", "main", "transparent", "#000000", tag="button")],
+        {"background": "#FFFFFF", "surface": "#F7F7F7", "text": "#000000", "accent": "#1428A0"},
+    )
+    assert inventory["buttons"]["selection"]["primary_label"] == "Buy now"
+    assert inventory["buttons"]["primary"]["background"] == "#FFFFFF"
+    assert inventory["buttons"]["primary"]["border_color"] == "#000000"
+
+
+def test_large_product_media_selects_product_led_visual_language() -> None:
+    rendered = {
+        "viewport": {"width": 1000, "height": 1000},
+        "elements": [
+            {
+                "tag": "main", "text_sample": "Buy the new Galaxy phone", "rect": {"width": 1000, "height": 900},
+                "viewport": {"visible": True, "area_ratio": 0.9}, "semantic": {"region": "main", "overlay": False},
+                "style": {"text_align": "left"},
+            },
+            {
+                "tag": "img", "src": "https://example.com/phone.jpg", "alt": "Galaxy phone",
+                "text_sample": "", "rect": {"width": 900, "height": 500},
+                "viewport": {"visible": True, "area_ratio": 0.45}, "semantic": {"region": "main", "overlay": False},
+                "style": {"text_align": "left"},
+            },
+        ],
+    }
+    visual = _visual_language(rendered)
+    assert visual["primary_mode"] == "product-led"
+    assert visual["product_language"] is True

@@ -269,6 +269,7 @@ def _refine_rendered_colors(
     dark_candidates = [
         value for value in color_counts
         if value not in {background, surface, text}
+        and value not in BROWSER_DEFAULT_COLORS
         and _luminance(value) <= 0.12
         and _chroma(value) >= 0.45
         and _contrast(background, value) >= 3
@@ -409,6 +410,62 @@ def _style_variants(
     return [_style_recipe(group, default_colors) for group in ranked]
 
 
+def _button_fingerprint(element: dict[str, Any]) -> tuple[Any, ...]:
+    style = element.get("style") or {}
+    return (
+        _color_to_hex(style.get("background", "")),
+        _color_to_hex(style.get("color", "")),
+        _color_to_hex(style.get("border_color", "")),
+        round(_px(style.get("border_radius"))),
+        round(_px(style.get("border_width"))),
+        str(style.get("font_weight", "")),
+    )
+
+
+def _button_score(element: dict[str, Any], colors: dict[str, str]) -> float:
+    """Rank likely calls to action above navigation and repeated utility links."""
+    text = str(element.get("text_sample", "")).strip().lower()
+    region = str((element.get("semantic") or {}).get("region", "")).lower()
+    rect = element.get("rect") or {}
+    style = element.get("style") or {}
+    background = _color_to_hex(style.get("background", ""))
+    score = 0.0
+    if element.get("tag") == "button" or element.get("role") == "button":
+        score += 5
+    if region in {"main", "section", "article"}:
+        score += 5
+    elif region in {"header", "nav", "navigation"}:
+        score -= 5
+    if re.search(r"\b(buy|shop|order|pre-?order|learn more|get started|try|explore|discover|book|request|contact|download)\b", text):
+        score += 8
+    if 1 <= len(text) <= 32:
+        score += 2
+    if 38 <= float(rect.get("width", 0)) <= 260:
+        score += 2
+    elif float(rect.get("width", 0)) > 320:
+        score -= 3
+    if background and background not in {colors["background"], colors["surface"]} and background not in BROWSER_DEFAULT_COLORS:
+        score += 5
+    if _px(style.get("border_width")) > 0:
+        score += 2
+    if _px(style.get("border_radius")) >= 8:
+        score += 1
+    return score
+
+
+def _button_recipe(elements: list[dict[str, Any]], colors: dict[str, str]) -> dict[str, Any]:
+    recipe = _style_recipe(elements, colors)
+    if not recipe:
+        return recipe
+    painted = [
+        _color_to_hex((item.get("style") or {}).get("background", ""))
+        for item in elements
+    ]
+    if painted and sum(value is None for value in painted) >= len(painted) / 2:
+        recipe["background"] = colors["background"]
+    return recipe
+
+
 def _component_inventory(elements: list[dict[str, Any]], colors: dict[str, str]) -> dict[str, Any]:
     elements = [item for item in elements if not _is_overlay(item)]
     headings = {
@@ -418,14 +475,20 @@ def _component_inventory(elements: list[dict[str, Any]], colors: dict[str, str])
     button_candidates = [
         item for item in elements
         if (item.get("tag") == "button" or item.get("role") == "button" or (item.get("tag") == "a" and item.get("href")))
+        and _in_primary_view(item)
         and 26 <= item.get("rect", {}).get("height", 0) <= 90
         and 38 <= item.get("rect", {}).get("width", 0) <= 520
     ]
-    colored_buttons = [
-        item for item in button_candidates
-        if (_color_to_hex(item["style"].get("background", "")) or colors["background"]) not in {colors["background"], colors["surface"]}
-    ]
-    secondary_buttons = [item for item in button_candidates if item not in colored_buttons]
+    ranked_buttons = sorted(button_candidates, key=lambda item: _button_score(item, colors), reverse=True)
+    primary_buttons: list[dict[str, Any]] = []
+    secondary_buttons: list[dict[str, Any]] = []
+    if ranked_buttons:
+        primary_fingerprint = _button_fingerprint(ranked_buttons[0])
+        primary_buttons = [item for item in ranked_buttons if _button_fingerprint(item) == primary_fingerprint]
+        secondary_anchor = next((item for item in ranked_buttons if _button_fingerprint(item) != primary_fingerprint), None)
+        if secondary_anchor:
+            secondary_fingerprint = _button_fingerprint(secondary_anchor)
+            secondary_buttons = [item for item in ranked_buttons if _button_fingerprint(item) == secondary_fingerprint]
     card_candidates = [
         item for item in elements
         if item.get("tag") in {"article", "aside", "div", "section"}
@@ -448,10 +511,16 @@ def _component_inventory(elements: list[dict[str, Any]], colors: dict[str, str])
     return {
         "typography": headings,
         "buttons": {
-            "primary": _style_recipe(colored_buttons, colors),
-            "secondary": _style_recipe(secondary_buttons, colors),
+            "primary": _button_recipe(primary_buttons, colors),
+            "secondary": _button_recipe(secondary_buttons, colors),
             "variants": _style_variants(button_candidates, colors),
-            "labels": [label for label, _ in Counter(item.get("text_sample", "") for item in button_candidates if item.get("text_sample")).most_common(8)],
+            "labels": [item["text_sample"] for item in ranked_buttons if item.get("text_sample")][:8],
+            "selection": {
+                "method": "semantic-cta-score",
+                "primary_label": ranked_buttons[0].get("text_sample") if ranked_buttons else None,
+                "primary_score": round(_button_score(ranked_buttons[0], colors), 2) if ranked_buttons else None,
+                "confidence": round(min(0.96, 0.48 + max(0, _button_score(ranked_buttons[0], colors)) / 40), 2) if ranked_buttons else 0,
+            },
         },
         "cards": _style_recipe(card_candidates, colors),
         "card_variants": _style_variants(card_candidates, colors),
@@ -489,10 +558,17 @@ def _visual_language(rendered: dict[str, Any] | None) -> dict[str, Any]:
         _area_ratio(item, rendered) for item in media
         if any(word in f"{item.get('src', '')} {item.get('alt', '')}".lower() for word in ("dashboard", "interface", "product-ui", "screenshot", "app-ui"))
     )
+    page_language = " ".join(str(item.get("text_sample", "")) for item in primary).lower()
+    product_language = bool(re.search(
+        r"\b(buy|shop|order|pre-?order|trade[ -]?in|galaxy|phone|tablet|laptop|monitor|television|tv|watch|shoe|device|appliance|product)\b",
+        page_language,
+    ))
     if interface_area >= 0.12:
         primary_mode = "interface-led"
     elif illustration_area >= 0.08 or (media_coverage < 0.2 and illustration_area >= 0.008):
         primary_mode = "illustration-led"
+    elif media_coverage >= 0.35 and product_language:
+        primary_mode = "product-led"
     elif media_coverage >= 0.35 or large_media:
         primary_mode = "media-led"
     elif len(primary) >= 700:
@@ -508,6 +584,7 @@ def _visual_language(rendered: dict[str, Any] | None) -> dict[str, Any]:
         "primary_mode": primary_mode,
         "media_coverage": round(media_coverage, 3),
         "large_media_count": len(large_media),
+        "product_language": product_language,
         "overlay_count": sum(1 for element in elements if _is_overlay(element)),
         "density": density,
         "dominant_alignment": alignments.most_common(1)[0][0] if alignments else "left",
@@ -558,8 +635,22 @@ def _logo_candidates(soup: BeautifulSoup, base_url: str) -> list[tuple[int, str,
     return sorted(set(candidates), reverse=True)
 
 
-def _save_best_logo(soup: BeautifulSoup, base_url: str, asset_dir: Path) -> list[dict[str, Any]]:
+def _save_best_logo(
+    soup: BeautifulSoup, base_url: str, asset_dir: Path, rendered: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     saved: list[dict[str, Any]] = []
+    visible_logo = (rendered or {}).get("visible_logo") or {}
+    if isinstance(visible_logo.get("png"), bytes):
+        payload = visible_logo["png"]
+        target = asset_dir / "logo.png"
+        atomic_write(target, payload)
+        return [{
+            "id": "primary-logo", "kind": "logo", "path": str(target),
+            "source_url": base_url, "source": "visible-header-logo",
+            "score": round(float(visible_logo.get("score", 0)), 2),
+            "confidence": 0.96, "provenance": "browser-rendered visible header/nav element",
+            "sha256": sha256_bytes(payload), "media_type": "image/png",
+        }]
     try:
         from logo_scraper import discover_logo_candidates
 
@@ -635,12 +726,59 @@ def _save_best_logo(soup: BeautifulSoup, base_url: str, asset_dir: Path) -> list
     return saved
 
 
+def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: int = 2) -> list[dict[str, Any]]:
+    if not rendered:
+        return []
+    ranked: list[tuple[float, str]] = []
+    for element in rendered.get("elements", []):
+        if not _in_primary_view(element):
+            continue
+        area = _area_ratio(element, rendered)
+        if area < 0.12:
+            continue
+        urls: list[str] = []
+        if element.get("tag") in {"img", "picture"} and element.get("src"):
+            urls.append(str(element["src"]))
+        background_image = str((element.get("style") or {}).get("background_image", ""))
+        urls.extend(re.findall(r"url\([\"']?([^\"')]+)", background_image))
+        for value in urls:
+            if value.startswith(("http://", "https://")):
+                ranked.append((area, value))
+    saved: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for area, url in sorted(ranked, reverse=True):
+        if url in seen:
+            continue
+        seen.add(url)
+        try:
+            final_url, payload, content_type = fetch_limited(url, MAX_ASSET_BYTES, accept="image/*")
+            if not payload or not content_type.startswith("image/"):
+                continue
+            suffix = Path(urlparse(final_url).path).suffix.lower()
+            if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+                suffix = ".png" if "png" in content_type else ".jpg"
+            target = asset_dir / f"hero-{len(saved) + 1}{suffix}"
+            atomic_write(target, payload)
+            saved.append({
+                "id": f"hero-{len(saved) + 1}", "kind": "hero-image", "path": str(target),
+                "source_url": final_url, "source": "browser-rendered-large-media",
+                "score": round(area * 100, 2), "confidence": round(min(0.96, 0.7 + area / 4), 2),
+                "provenance": "largest non-overlay media visible in sampled viewport",
+                "sha256": sha256_bytes(payload), "media_type": content_type.split(";")[0],
+            })
+            if len(saved) >= limit:
+                break
+        except Exception:
+            continue
+    return saved
+
+
 def _logo_palette(assets: list[dict[str, Any]], limit: int = 5) -> list[str]:
     if not assets:
         return []
     path = next(
         (
-            candidate for asset in assets
+            candidate for asset in assets if asset.get("kind") in {None, "logo"}
             if (candidate := Path(str(asset.get("path", "")))).exists() and candidate.suffix.lower() != ".svg"
         ),
         None,
@@ -723,8 +861,10 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
         except Exception:
             continue
     css = "\n".join(css_parts)
-    assets = _save_best_logo(soup, final_url, asset_dir)
-    logo_colors = _logo_palette(assets)
+    logo_assets = _save_best_logo(soup, final_url, asset_dir, rendered)
+    hero_assets = _save_hero_assets(rendered, asset_dir)
+    assets = logo_assets + hero_assets
+    logo_colors = _logo_palette(logo_assets)
     colors, color_evidence = _choose_colors(css)
     colors = _refine_rendered_colors(colors, rendered, logo_colors)
     display_font, body_font, font_evidence = _choose_fonts(css, soup)
@@ -775,9 +915,31 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
             "fonts": font_evidence,
             "counts": {
                 "css_bytes": len(css.encode()), "stylesheets_fetched": len(stylesheet_urls),
-                "logo_assets": len(assets), "browser_rendered": bool(rendered),
+                "logo_assets": len(logo_assets), "hero_assets": len(hero_assets), "browser_rendered": bool(rendered),
                 "visible_elements_sampled": len(rendered.get("elements", [])) if rendered else 0,
                 "overlays_excluded": visual_language["overlay_count"],
+                "overlays_dismissed": (rendered.get("overlay_actions") or {}) if rendered else {},
+            },
+            "selection": {
+                "colors": {
+                    role: {
+                        "value": value,
+                        "confidence": 0.88 if rendered else 0.58,
+                        "provenance": "browser-rendered non-overlay evidence" if rendered else "bounded HTML/CSS evidence",
+                    }
+                    for role, value in colors.items()
+                },
+                "logo": {
+                    "asset_id": logo_assets[0]["id"] if logo_assets else None,
+                    "confidence": logo_assets[0].get("confidence", 0.62) if logo_assets else 0,
+                    "provenance": logo_assets[0].get("provenance", logo_assets[0].get("source")) if logo_assets else None,
+                },
+                "primary_button": components.get("buttons", {}).get("selection", {}),
+                "hero_image": {
+                    "asset_id": hero_assets[0]["id"] if hero_assets else None,
+                    "confidence": hero_assets[0].get("confidence", 0) if hero_assets else 0,
+                    "provenance": hero_assets[0].get("provenance") if hero_assets else None,
+                },
             },
             "limitations": [
                 "Browser-rendered evidence is viewport-bounded; states below the sampled page region may be missed",
