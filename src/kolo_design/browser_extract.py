@@ -94,7 +94,7 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
         }"""
     )
     page.wait_for_timeout(650)
-    hidden = page.evaluate(
+    hidden_result = page.evaluate(
         """() => {
           const words = /(cookie|consent|privacy|tracking|preference)/i;
           const candidates = [...document.querySelectorAll('[role="dialog"],dialog,[id*="cookie" i],[class*="cookie" i],[id*="consent" i],[class*="consent" i]')];
@@ -107,14 +107,28 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
               hidden += 1;
             }
           }
-          if (hidden) {
+          let backdrops = 0;
+          for (const el of document.querySelectorAll('body *')) {
+            const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+            const area = Math.max(0, r.width) * Math.max(0, r.height);
+            const hint = `${el.id || ''} ${typeof el.className === 'string' ? el.className : ''}`.toLowerCase();
+            const text = (el.innerText || el.getAttribute('aria-label') || '').trim();
+            const z = Number.parseInt(s.zIndex, 10) || 0;
+            const backdropLike = /(backdrop|scrim|overlay|veil|modal|consent|privacy|cookie)/.test(hint) || z >= 1000;
+            if (['fixed', 'sticky'].includes(s.position) && area >= innerWidth * innerHeight * 0.55 && text.length <= 2 && backdropLike) {
+              el.style.setProperty('display', 'none', 'important');
+              backdrops += 1;
+            }
+          }
+          if (hidden || backdrops) {
             document.documentElement.style.setProperty('overflow', 'auto', 'important');
             document.body.style.setProperty('overflow', 'auto', 'important');
           }
-          return hidden;
+          return {dialogs: hidden, backdrops};
         }"""
     )
-    result["hidden"] = hidden
+    result["hidden"] = hidden_result["dialogs"]
+    result["backdrops_hidden"] = hidden_result["backdrops"]
     return result
 
 

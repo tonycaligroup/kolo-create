@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from bs4 import BeautifulSoup
 from PIL import Image
+from playwright.sync_api import sync_playwright
+
+from kolo_design.browser_extract import _browser_executable, _dismiss_overlays
 
 from kolo_design.extractor import (
     _choose_colors,
@@ -15,6 +19,26 @@ from kolo_design.extractor import (
     _spacing,
     _visual_language,
 )
+
+
+def test_consent_cleanup_removes_orphaned_fullscreen_backdrop() -> None:
+    executable = _browser_executable()
+    if not executable:
+        pytest.skip("Chromium is not installed")
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1200, "height": 800})
+        page.set_content(
+            """
+            <main>Visible brand page</main>
+            <div class="privacy-backdrop" style="position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.5)"></div>
+            <div role="dialog" class="cookie-dialog"><p>Cookie privacy preferences</p><button>Accept All</button></div>
+            """
+        )
+        result = _dismiss_overlays(page)
+        assert result == {"clicked": "Accept All", "hidden": 1, "backdrops_hidden": 1}
+        assert page.locator(".privacy-backdrop").evaluate("el => getComputedStyle(el).display") == "none"
+        browser.close()
 
 
 def test_style_evidence_compiles_to_semantic_tokens() -> None:
