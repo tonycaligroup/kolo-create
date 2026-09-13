@@ -179,10 +179,10 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
     cover_component = component_plan["cover"]
     hero_asset = next((asset for asset in system.get("assets") or [] if asset.get("id") == cover_component.get("asset_id")), None)
     hero = Path(str(hero_asset["path"])).resolve().as_uri() if hero_asset and Path(str(hero_asset["path"])).exists() else None
-    hero_layout = {"bottom-band": "landscape", "side-panel": "portrait", "none": "abstract"}[cover_component["placement"]]
+    hero_layout = {"bottom-band": "landscape", "side-panel": "portrait", "none": "none"}[cover_component["placement"]]
     hero_markup = (
         f'<figure class="hero-frame"><img src="{hero}" alt=""></figure>'
-        if hero else '<div class="hero-abstract"><i></i><i></i><i></i></div>'
+        if hero else ""
     )
     logo_markup = f'<img class="logo" src="{logo}" alt="{html.escape(system["name"])} logo">' if logo else f'<div class="wordmark">{html.escape(system["name"])}</div>'
     page_size = "A4" if plan["page_size"] == "A4" else "Letter"
@@ -251,6 +251,8 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       .cover-copy {{ position:relative; z-index:2; align-self:center; padding-right:.32in; }}
       .cover.hero-landscape {{ grid-template-columns:1fr; grid-template-rows:56% 44%; }}
       .cover.hero-landscape .cover-copy {{ max-width:6.35in; padding-right:0; }}
+      .cover.hero-none {{ grid-template-columns:1fr; }}
+      .cover.hero-none .cover-copy {{ width:100%; max-width:6.35in; padding-right:0; justify-self:center; }}
       .eyebrow {{ color:var(--eyebrow); font-size:10px; text-transform:uppercase; letter-spacing:1.2px; font-weight:700; margin-bottom:28px; }}
       h1,h2 {{ font-family:var(--display); font-weight:500; letter-spacing:-.025em; margin:0; }}
       h1 {{ font-size:var(--h1); line-height:1.02; margin-bottom:20px; }}
@@ -261,8 +263,6 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       .hero-frame img {{ display:block; width:100%; height:100%; object-fit:cover; object-position:54% center; }}
       .hero-landscape .hero-frame {{ margin:0 -.72in -.65in; }}
       .hero-landscape .hero-frame img {{ object-position:center center; }}
-      .hero-abstract {{ align-self:stretch; margin:-.82in -.72in -.65in 0; display:grid; grid-template:1fr 1fr/1fr 1fr; gap:10px; }}
-      .hero-abstract i {{ display:block; background:var(--accent); }} .hero-abstract i:nth-child(2){{background:var(--accent-2)}} .hero-abstract i:nth-child(3){{background:var(--surface);grid-column:1/3}}
       .content-page {{ padding:.55in .72in .58in; }}
       .content-grid {{ width:100%; height:calc(100% - .28in); display:flex; flex-direction:column; justify-content:flex-start; }}
       .section {{ width:100%; margin-bottom:22px; break-inside:avoid; }}

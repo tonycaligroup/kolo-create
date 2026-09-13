@@ -257,6 +257,18 @@ def test_html_pdf_vertical_slice(tmp_path: Path) -> None:
     assert len(PdfReader(str(output)).pages) == 3
 
 
+def test_html_cover_without_hero_uses_open_composition() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    system["assets"] = [asset for asset in system["assets"] if asset.get("kind") != "hero"]
+    content = (FIXTURES / "content.md").read_text(encoding="utf-8")
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Create an editorial brief", blocks)
+    plan["composition"] = select_composition(system, plan, blocks, "Create an editorial brief")
+    markup, _ = _document_html(system, plan, blocks)
+    assert 'class="page cover hero-none"' in markup
+    assert "hero-abstract" not in markup
+
+
 def test_deterministic_layout_uses_cards_and_preserves_block_ids() -> None:
     content = "# Launch\n\n## Features\n\n- One\n- Two\n- Three\n\n> Built for people.\n\n[Learn more](https://example.com)"
     blocks = source_blocks(content)
