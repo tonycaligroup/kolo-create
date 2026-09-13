@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website, then use that saved system with user-supplied text and a design prompt to produce a polished, verified PDF. Use when a user wants to capture brand language, generate branded documents, refresh a saved brand, or reuse a brand across new PDFs.
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.4.0
+version: 0.5.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: website extraction creates a reusable versioned design system; PDF generation consumes an exact saved version without recrawling or modifying it.
@@ -20,10 +20,10 @@ Kolo Create is one skill with two explicit stages. Never collapse the stages int
 When the user supplies a public website, run:
 
 ```sh
-uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design create design-system --url "<public website>" --name "<brand name>" --workspace "/home/node/.openclaw/kolo-create-data"
+uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design create design-system --url "<public website>" --name "<brand name>" --workspace "/home/node/.openclaw/kolo-create-data" --example-output "/home/node/.openclaw/kolo-create-data/examples/<brand-id>-kolo-create.pdf"
 ```
 
-Return the design-system JSON, specimen, source screenshot, brand ID, and evidence counts. Explain that observed values are evidence while semantic token roles are deterministic candidates.
+Return the design-system JSON, specimen, source screenshot, brand ID, evidence counts, and the first branded example PDF. The example is a canonical explanation of Kolo Create rendered in the new system; it makes the extraction immediately testable while remaining a separate PDF-generation stage internally. Explain that observed values are evidence while semantic token roles are deterministic candidates.
 
 The design system includes more than tokens: capture observed heading levels, primary and secondary buttons, component variants, cards, navigation, section surfaces, imagery proportions, borders, radii, shadows, padding, alignment, and common labels. It stores a multi-color brand palette, portable font categories, overlay exclusions, and visual-language signals such as media coverage, density, and whether the sampled viewport is media-, illustration-, interface-, or typography-led. Return the separate component-inventory path as well.
 
@@ -35,7 +35,7 @@ When the user supplies or selects a saved design system plus source text and a d
 uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design pdf create --system "<design-system.json>" --content "<source.txt-or-md>" --prompt "<design direction>" --output "<result.pdf>"
 ```
 
-Return the PDF, inspectable layout plan, previews, quality report, page count, component-usage counts, and exact design-system version. The deterministic planner preserves Markdown structure, assigns stable IDs to every source block, and recognizes explicit style, title, page-size, and orientation direction. It turns suitable feature lists into card grids and renders callouts and standalone links with the saved design system's component recipes.
+Return the PDF, inspectable layout plan, previews, quality report, page count, component-usage counts, selected composition family with its evidence, and exact design-system version. The deterministic planner preserves Markdown structure, assigns stable IDs to every source block, and recognizes explicit style, title, page-size, and orientation direction. A separate deterministic composition selector combines content structure with saved visual-language signals and chooses among editorial narrative, asymmetric feature grid, numbered process, and modular announcement families. Explicit composition directions override automatic selection.
 
 Use the modular LLM planner only when semantic restructuring is needed:
 

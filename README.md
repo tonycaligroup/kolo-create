@@ -15,7 +15,8 @@ uv sync --frozen
 uv run kolo-design create design-system \
   --url "https://kolo.ai" \
   --name "Kolo" \
-  --workspace "./data"
+  --workspace "./data" \
+  --example-output "./output/kolo-create-example.pdf"
 
 uv run kolo-design pdf create \
   --system "./data/brands/kolo/latest.json" \
@@ -28,7 +29,9 @@ Website extraction prefers Chromium-rendered computed styles, captures a source 
 
 The resulting design system includes component variants for heading hierarchy, buttons, cards, navigation, and section surfaces, plus imagery proportions, borders, radii, shadows, padding, and alignment. It also records portable font categories and visual-language signals including media coverage, viewport density, dominant alignment, overlay count, and an observed presentation mode. A separate component inventory and expanded specimen make the extracted language inspectable before reuse.
 
-PDF creation compiles source Markdown into stable content-block IDs and an inspectable, format-independent layout plan. The renderer maps those blocks to extracted heading, card, callout, and action recipes, then reopens the final document, measures source-content coverage, renders PNG previews with Poppler, and writes a quality report.
+PDF creation compiles source Markdown into stable content-block IDs and an inspectable, format-independent layout plan. A code-owned composition selector combines source structure with saved visual-language evidence, then chooses an editorial narrative, asymmetric feature grid, numbered process, or modular announcement. The renderer maps the blocks into that family with extracted heading, card, callout, and action recipes, then reopens the final document, measures source-content coverage, renders PNG previews with Poppler, and writes a quality report.
+
+`--example-output` keeps the two stages separate but runs them back-to-back: after extraction it renders the bundled Kolo Create explainer with the new system. This provides an immediate, comparable first artifact for every brand without a model call.
 
 Inline bold, links, and code spans are converted for ReportLab. Emoji unsupported by the PDF fonts are removed automatically and counted in the quality report, so the agent does not need to rewrite the source into a separate print copy.
 

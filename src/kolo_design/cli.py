@@ -20,6 +20,11 @@ def parser() -> argparse.ArgumentParser:
     design_system.add_argument("--url", required=True)
     design_system.add_argument("--workspace", type=Path, required=True)
     design_system.add_argument("--name")
+    design_system.add_argument(
+        "--example-output",
+        type=Path,
+        help="After extraction, render the bundled Kolo Create explainer with the saved system",
+    )
 
     pdf = commands.add_parser("pdf", help="Design a PDF with a saved design system")
     pdf_commands = pdf.add_subparsers(dest="pdf_command", required=True)
@@ -38,6 +43,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "create":
             result = extract_brand(args.url, args.workspace, args.name)
+            if args.example_output:
+                example_source = Path(__file__).resolve().parents[2] / "assets" / "kolo-create-explainer.md"
+                example = create_pdf(
+                    Path(result["design_system"]),
+                    example_source,
+                    "Explain Kolo Create using the composition best suited to this brand and content",
+                    args.example_output,
+                    DeterministicPlanner(),
+                )
+                result["example_pdf"] = example
         else:
             if args.planner == "llm":
                 if not args.model:

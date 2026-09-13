@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 from pypdf import PdfReader
 
+import kolo_design.cli as cli_module
+from kolo_design.composition import select_composition, validate_composition
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
 from kolo_design.network import FetchError, assert_public_url
@@ -25,10 +27,64 @@ def test_component_foreground_falls_back_to_readable_contrast() -> None:
 
 def test_create_design_system_command_contract() -> None:
     args = parser().parse_args([
-        "create", "design-system", "--url", "https://example.com", "--workspace", "./data"
+        "create", "design-system", "--url", "https://example.com", "--workspace", "./data",
+        "--example-output", "./example.pdf",
     ])
     assert args.command == "create"
     assert args.create_command == "design-system"
+    assert args.example_output == Path("./example.pdf")
+
+
+def test_create_design_system_can_render_bundled_first_example(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    system_path = tmp_path / "design-system.json"
+    example_path = tmp_path / "first-example.pdf"
+    monkeypatch.setattr(
+        cli_module,
+        "extract_brand",
+        lambda url, workspace, name: {"status": "succeeded", "design_system": str(system_path)},
+    )
+    captured: dict[str, Path] = {}
+
+    def fake_create_pdf(system: Path, content: Path, prompt: str, output: Path, planner: object) -> dict[str, str]:
+        captured.update(system=system, content=content, output=output)
+        return {"status": "succeeded", "pdf": str(output)}
+
+    monkeypatch.setattr(cli_module, "create_pdf", fake_create_pdf)
+    status = cli_module.main([
+        "create", "design-system", "--url", "https://example.com", "--workspace", str(tmp_path),
+        "--example-output", str(example_path),
+    ])
+    assert status == 0
+    assert captured["system"] == system_path
+    assert captured["output"] == example_path
+    assert captured["content"].name == "kolo-create-explainer.md"
+    assert captured["content"].exists()
+
+
+def test_composition_uses_brand_and_content_signals() -> None:
+    content = "# Launch\n\n## How it works\n\n- Observe\n- Interpret\n- Save"
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Create an overview", blocks)
+    illustration_system = {"visual_language": {"primary_mode": "illustration-led", "density": "balanced"}}
+    dense_media_system = {"visual_language": {"primary_mode": "media-led", "density": "dense"}}
+    assert select_composition(illustration_system, plan, blocks, "Create an overview")["family"] == "modular_announcement"
+    assert select_composition(dense_media_system, plan, blocks, "Create an overview")["family"] == "asymmetric_feature_grid"
+    assert select_composition({}, plan, blocks, "Create an overview")["family"] == "numbered_process"
+
+
+def test_explicit_composition_overrides_brand_signals() -> None:
+    content = "# Story\n\nA narrative paragraph."
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Create a brief", blocks)
+    composition = select_composition(
+        {"visual_language": {"primary_mode": "illustration-led", "density": "balanced"}},
+        plan,
+        blocks,
+        "Use an editorial narrative",
+    )
+    validate_composition(composition)
+    assert composition["family"] == "editorial_narrative"
+    assert composition["reason"] == "explicit_prompt"
 
 
 @pytest.mark.parametrize("url", ["http://127.0.0.1", "http://localhost", "http://169.254.169.254/latest/meta-data"])
@@ -50,6 +106,10 @@ def test_pdf_vertical_slice(tmp_path: Path) -> None:
     assert len(PdfReader(str(output)).pages) == result["pages"]
     assert Path(result["quality_report"]).exists()
     assert Path(result["layout_plan"]).exists()
+    layout = read_json(Path(result["layout_plan"]))
+    assert layout["composition"]["family"] in {
+        "editorial_narrative", "asymmetric_feature_grid", "numbered_process", "modular_announcement"
+    }
 
 
 def test_deterministic_layout_uses_cards_and_preserves_block_ids() -> None:
