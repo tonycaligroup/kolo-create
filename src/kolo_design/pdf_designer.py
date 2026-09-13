@@ -626,36 +626,37 @@ def create_pdf(
         heading_flowable: Any = ""
         body_values: list[str] = []
         action_flowable: Any = ""
-        close_button_width = min(button_width, document.width * 0.44)
+        close_action_width = min(max(160, document.width * 0.34), document.width * 0.42)
         for block in section_blocks:
             safe = _inline_markdown(block["text"])
             if block["kind"].startswith("heading"):
                 heading_flowable = Paragraph(safe, close_h)
                 component_usage["headings"] += 1
             elif block["kind"] == "action":
+                close_action_label = ParagraphStyle(
+                    "close-action-label", parent=styles["eyebrow"], fontSize=7.5, leading=10,
+                    textColor=_reportlab_color(eyebrow_hex), alignment=TA_RIGHT, spaceAfter=0,
+                )
                 close_action_style = ParagraphStyle(
-                    "close-action", parent=styles["action"],
-                    textColor=_reportlab_color(button_foreground_hex),
+                    "close-action", parent=styles["action"], fontSize=12.5,
+                    leading=15, textColor=text, alignment=TA_RIGHT,
                 )
-                action = BrandedBox(
-                    safe, close_action_style, background=_reportlab_color(button_background_hex),
-                    border=button_border, border_width=button_border_width,
-                    radius=button_radius, padding=8, min_height=button_height,
-                )
-                close_button_width = fitted_button_width(safe, document.width * 0.44)
-                action_flowable = Table([[action]], colWidths=[close_button_width], hAlign="RIGHT", style=TableStyle([
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ]))
+                action_flowable = [
+                    Paragraph("CONTINUE", close_action_label),
+                    Spacer(1, max(3, base * 0.7)),
+                    Paragraph(safe, close_action_style),
+                    Spacer(1, max(4, base)),
+                    HRFlowable(width="42%", thickness=1.4, color=accent, hAlign="RIGHT"),
+                ]
                 component_usage["actions"] += 1
             else:
                 body_values.append(safe)
                 component_usage["standard_blocks"] += 1
         close_gap = max(12, base * 3)
-        body_width = document.width - close_button_width - close_gap
+        body_width = document.width - close_action_width - close_gap
         body_and_action = Table(
             [[Paragraph("<br/><br/>".join(body_values), close_body), "", action_flowable]],
-            colWidths=[body_width, close_gap, close_button_width],
+            colWidths=[body_width, close_gap, close_action_width],
             style=TableStyle([
                 ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                 ("LEFTPADDING", (0, 0), (0, -1), max(6, base * 1.5)),
