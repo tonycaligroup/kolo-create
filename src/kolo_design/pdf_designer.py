@@ -61,6 +61,23 @@ def _legible_foreground(background: str, *candidates: Any) -> str:
     return max(dict.fromkeys(valid), key=lambda value: _contrast_ratio(background, value))
 
 
+def _brand_dark(system: dict[str, Any], palette: dict[str, str]) -> str:
+    explicit = palette.get("brand_dark")
+    if isinstance(explicit, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", explicit):
+        return explicit.upper()
+    excluded = {palette.get(role, "").upper() for role in ("background", "surface", "text", "accent", "accent_secondary")}
+    candidates: list[tuple[int, str]] = []
+    for item in (system.get("evidence") or {}).get("colors", []):
+        value = str(item.get("value", "")).upper()
+        if not re.fullmatch(r"#[0-9A-F]{6}", value) or value in excluded:
+            continue
+        channels = [int(value[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        saturation = (max(channels) - min(channels)) / max(max(channels), 0.001)
+        if max(channels) <= 0.24 and saturation >= 0.45 and _contrast_ratio(palette["background"], value) >= 3:
+            candidates.append((int(item.get("occurrences", 0)), value))
+    return max(candidates, default=(0, palette["text"]), key=lambda item: item[0])[1]
+
+
 def _font_roles(system: dict[str, Any]) -> tuple[str, str, str]:
     typography = system["tokens"]["typography"]
     display = typography["display_family"].lower()
@@ -188,6 +205,8 @@ def create_pdf(
     text = _reportlab_color(palette["text"])
     accent = _reportlab_color(palette["accent"])
     accent_secondary = _reportlab_color(palette.get("accent_secondary", palette["accent"]))
+    brand_dark_hex = _brand_dark(system, palette)
+    brand_dark = _reportlab_color(brand_dark_hex)
     display_font, body_font, label_font = _font_roles(system)
     base = float(system["tokens"]["spacing"]["base"])
     components = system.get("components") or {}
@@ -259,10 +278,12 @@ def create_pdf(
             canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
         if doc.page == 1:
             if family == "editorial_narrative":
-                canvas.setFillColor(surface)
-                canvas.rect(width * 0.68, 0, width * 0.32, height, stroke=0, fill=1)
+                canvas.setFillColor(accent)
+                canvas.rect(width - 1.18 * inch, 0.62 * inch, 0.76 * inch, 0.76 * inch, stroke=0, fill=1)
+                canvas.setFillColor(accent_secondary)
+                canvas.rect(width - 0.62 * inch, 0.42 * inch, 0.34 * inch, 0.34 * inch, stroke=0, fill=1)
             elif family == "asymmetric_feature_grid":
-                canvas.setFillColor(surface)
+                canvas.setFillColor(brand_dark)
                 canvas.rect(width * 0.57, 0, width * 0.43, height * 0.72, stroke=0, fill=1)
                 canvas.setFillColor(accent_secondary)
                 canvas.rect(width * 0.77, 0, width * 0.23, height * 0.31, stroke=0, fill=1)
@@ -305,9 +326,9 @@ def create_pdf(
         story.extend([panel, Spacer(1, base * 3)])
     elif family == "asymmetric_feature_grid":
         story.extend([
-            Table([[cover_title, ""]], colWidths=[document.width * 0.68, document.width * 0.32], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM")])),
+            Table([[cover_title, ""]], colWidths=[document.width * 0.54, document.width * 0.46], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM")])),
             Spacer(1, base * 2),
-            Table([["", cover_subtitle]], colWidths=[document.width * 0.23, document.width * 0.77], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])),
+            Table([[cover_subtitle, ""]], colWidths=[document.width * 0.54, document.width * 0.46], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])),
         ])
     else:
         story.extend([cover_title, Table([[""]], colWidths=[1.2 * inch], rowHeights=[5], style=TableStyle([("BACKGROUND", (0, 0), (-1, -1), accent)])), Spacer(1, base * 3), cover_subtitle])
@@ -367,9 +388,10 @@ def create_pdf(
             story.append(Paragraph(f"<bullet>•</bullet>{safe}", styles["bullet"]))
             component_usage["standard_blocks"] += 1
         elif kind == "callout":
+            callout_radius = 0 if family == "numbered_process" else card_radius
             story.extend([
                 BrandedBox(safe, styles["callout"], background=section_background, border=surface, border_width=0,
-                           radius=card_radius, padding=section_padding, accent=accent),
+                           radius=callout_radius, padding=section_padding, accent=accent),
                 Spacer(1, base * 2),
             ])
             component_usage["callouts"] += 1
@@ -420,8 +442,12 @@ def create_pdf(
         if not card_blocks:
             return
         gap = max(8, base * 2)
+        asym_lead_style = ParagraphStyle(
+            "asym-lead", parent=styles["lead"],
+            textColor=_reportlab_color(_legible_foreground(brand_dark_hex, palette["text"])),
+        )
         first = BrandedBox(
-            _inline_markdown(card_blocks[0]["text"]), styles["lead"], background=section_background,
+            _inline_markdown(card_blocks[0]["text"]), asym_lead_style, background=brand_dark,
             border=card_border, border_width=card_border_width, radius=card_radius, padding=section_padding,
             accent=accent_secondary, min_height=76, shadow=bool(card_recipe.get("shadow") and card_recipe.get("shadow") != "none"),
         )
@@ -473,7 +499,7 @@ def create_pdf(
             number = Paragraph(f"{step_number:02d}", styles["number"])
             step = BrandedBox(
                 _inline_markdown(block["text"]), styles["module"], background=section_background,
-                border=card_border, border_width=card_border_width, radius=card_radius, padding=min(card_padding, 10),
+                border=section_background, border_width=0, radius=0, padding=min(card_padding, 10),
                 min_height=44,
             )
             row = Table([[number, step]], colWidths=[0.55 * inch, document.width - 0.55 * inch], style=TableStyle([
@@ -489,7 +515,12 @@ def create_pdf(
 
     def add_closing_section(section_blocks: list[dict[str, str]]) -> None:
         """Keep a short final promise and action together as a compact visual ending."""
-        panel_hex = palette["accent"] if family != "modular_announcement" else palette.get("accent_secondary", palette["accent"])
+        if family == "asymmetric_feature_grid":
+            panel_hex = brand_dark_hex
+        elif family == "modular_announcement":
+            panel_hex = palette.get("accent_secondary", palette["accent"])
+        else:
+            panel_hex = palette["accent"]
         panel_background = _reportlab_color(panel_hex)
         panel_foreground_hex = _legible_foreground(panel_hex, palette["text"])
         panel_foreground = _reportlab_color(panel_foreground_hex)

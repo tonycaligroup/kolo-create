@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website, then use that saved system with user-supplied text and a design prompt to produce a polished, verified PDF. Use when a user wants to capture brand language, generate branded documents, refresh a saved brand, or reuse a brand across new PDFs.
 metadata:
-  version: "0.5.0"
+  version: "0.5.1"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.5.0
+version: 0.5.1
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: website extraction creates a reusable versioned design system; PDF generation consumes an exact saved version without recrawling or modifying it.
@@ -25,7 +25,7 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 
 Return the design-system JSON, specimen, source screenshot, brand ID, evidence counts, and the first branded example PDF. The example is a canonical explanation of Kolo Create rendered in the new system; it makes the extraction immediately testable while remaining a separate PDF-generation stage internally. Explain that observed values are evidence while semantic token roles are deterministic candidates.
 
-The design system includes more than tokens: capture observed heading levels, primary and secondary buttons, component variants, cards, navigation, section surfaces, imagery proportions, borders, radii, shadows, padding, alignment, and common labels. It stores a multi-color brand palette, portable font categories, overlay exclusions, and visual-language signals such as media coverage, density, and whether the sampled viewport is media-, illustration-, interface-, or typography-led. Return the separate component-inventory path as well.
+The design system includes more than tokens: capture observed heading levels, primary and secondary buttons, component variants, cards, navigation, section surfaces, imagery proportions, borders, radii, shadows, padding, alignment, and common labels. It stores a multi-color brand palette including a saturated dark support role when observed, portable font categories, overlay exclusions, and visual-language signals such as media coverage, density, and whether the sampled viewport is media-, illustration-, interface-, or typography-led. Return the separate component-inventory path as well.
 
 ## 2. Create a PDF
 

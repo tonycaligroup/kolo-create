@@ -10,7 +10,7 @@ from kolo_design.composition import select_composition, validate_composition
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
 from kolo_design.network import FetchError, assert_public_url
-from kolo_design.pdf_designer import _legible_foreground, create_pdf
+from kolo_design.pdf_designer import _brand_dark, _legible_foreground, create_pdf
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
 from kolo_design.util import read_json
 
@@ -23,6 +23,19 @@ def test_fixture_system_is_valid() -> None:
 
 def test_component_foreground_falls_back_to_readable_contrast() -> None:
     assert _legible_foreground("#000000", "#1264A3", "#000000") == "#FFFFFF"
+
+
+def test_brand_dark_can_be_recovered_from_saved_color_evidence() -> None:
+    system = {"evidence": {"colors": [
+        {"value": "#000000", "occurrences": 1000},
+        {"value": "#00162B", "occurrences": 110},
+        {"value": "#1B6AEE", "occurrences": 35},
+    ]}}
+    palette = {
+        "background": "#FFFFFF", "surface": "#F8F8F8", "text": "#000000",
+        "accent": "#FFCC00", "accent_secondary": "#D2003C",
+    }
+    assert _brand_dark(system, palette) == "#00162B"
 
 
 def test_create_design_system_command_contract() -> None:

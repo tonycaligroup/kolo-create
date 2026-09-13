@@ -262,10 +262,20 @@ def _refine_rendered_colors(
         ),
         accent,
     )
-    return {
+    refined = {
         "background": background, "surface": surface, "text": text,
         "accent": accent, "accent_secondary": secondary,
     }
+    dark_candidates = [
+        value for value in color_counts
+        if value not in {background, surface, text}
+        and _luminance(value) <= 0.12
+        and _chroma(value) >= 0.45
+        and _contrast(background, value) >= 3
+    ]
+    if dark_candidates:
+        refined["brand_dark"] = max(dark_candidates, key=lambda value: color_counts[value])
+    return refined
 
 
 def _choose_fonts(css: str, soup: BeautifulSoup) -> tuple[str, str, list[dict[str, Any]]]:

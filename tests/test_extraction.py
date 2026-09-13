@@ -109,6 +109,39 @@ def test_cta_and_logo_colors_outrank_browser_default_links() -> None:
     assert colors["accent_secondary"] == "#58CC02"
 
 
+def test_frequent_saturated_dark_color_is_preserved_as_brand_support() -> None:
+    rendered = {
+        "root_styles": {"body": {"background": "#FFFFFF", "color": "#000000"}},
+        "viewport": {"width": 1000, "height": 1000},
+        "elements": [
+            {
+                "tag": "main", "rect": {"width": 1000, "height": 900},
+                "viewport": {"visible": True, "area_ratio": 0.9}, "semantic": {"region": "main", "overlay": False},
+                "style": {"background": "#FFFFFF", "color": "#000000", "border_color": "#00162B"},
+            },
+            *[
+                {
+                    "tag": "nav", "rect": {"width": 500, "height": 48},
+                    "viewport": {"visible": True, "area_ratio": 0.024}, "semantic": {"region": "nav", "overlay": False},
+                    "style": {"background": "#00162B", "color": "#FFFFFF", "border_color": "#00162B"},
+                }
+                for _ in range(4)
+            ],
+            {
+                "tag": "a", "href": True, "rect": {"width": 160, "height": 44},
+                "viewport": {"visible": True, "area_ratio": 0.007}, "semantic": {"region": "main", "overlay": False},
+                "style": {"background": "#D2003C", "color": "#FFFFFF", "border_color": "#D2003C"},
+            },
+        ],
+    }
+    colors = _refine_rendered_colors(
+        {"background": "#FFFFFF", "surface": "#F8F8F8", "text": "#000000", "accent": "#FFCC00"},
+        rendered,
+        ["#FFCC00", "#D2003C"],
+    )
+    assert colors["brand_dark"] == "#00162B"
+
+
 def test_overlay_colors_are_excluded_from_palette_and_visual_language() -> None:
     rendered = {
         "root_styles": {"body": {"background": "#FFFFFF", "color": "#111111"}},
