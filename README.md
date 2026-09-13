@@ -28,13 +28,13 @@ Website extraction prefers Chromium-rendered computed styles, captures a source 
 
 The resulting design system includes component recipes for heading hierarchy, primary and secondary buttons, cards, navigation, section surfaces, imagery proportions, borders, radii, shadows, padding, and alignment. A separate component inventory and expanded specimen make the extracted language inspectable before reuse.
 
-PDF creation reopens the final document, measures source-content coverage, renders PNG previews with Poppler, and writes a quality report.
+PDF creation compiles source Markdown into stable content-block IDs and an inspectable, format-independent layout plan. The renderer maps those blocks to extracted heading, card, callout, and action recipes, then reopens the final document, measures source-content coverage, renders PNG previews with Poppler, and writes a quality report.
 
 Inline bold, links, and code spans are converted for ReportLab. Emoji unsupported by the PDF fonts are removed automatically and counted in the quality report, so the agent does not need to rewrite the source into a separate print copy.
 
 ## Modular planning
 
-The deterministic planner makes the default workflow inexpensive and reproducible. For semantic restructuring, provide an explicit workspace-entitled model:
+The deterministic planner makes the default workflow inexpensive and reproducible. It creates card grids for suitable feature lists without making a model call. For semantic layout choices, provide an explicit workspace-entitled model:
 
 ```sh
 export KOLO_LLM_BASE_URL="https://your-openai-compatible-gateway"
@@ -49,7 +49,7 @@ uv run kolo-design pdf create \
   --model "workspace-entitled-model-id"
 ```
 
-The repository deliberately contains no universal model allowlist and no image-provider selector. Image generation can later use the workspace's single configured route without changing the design-system contract.
+The model receives bounded source blocks and may only arrange their IDs into supported presentation roles; code rejects any plan that drops, repeats, or invents a block. The repository deliberately contains no universal model allowlist and no image-provider selector. Image generation can later use the workspace's single configured route without changing the design-system contract.
 
 ## Validate
 
