@@ -10,6 +10,8 @@ from .html_designer import compare_pdf_renderers, create_html_pdf
 from .network import FetchError
 from .pdf_designer import create_pdf
 from .planner import DeterministicPlanner, OpenAICompatiblePlanner
+from .presentation_designer import create_presentation
+from .presentation_planner import DeterministicPresentationPlanner, OpenAICompatiblePresentationPlanner
 from .source_extract import extract_source_brand
 
 
@@ -31,6 +33,11 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help="Override the automatic <workspace>/examples/<brand-id>-kolo-create.pdf path",
     )
+    design_system.add_argument(
+        "--example-presentation-output",
+        type=Path,
+        help="Override the automatic <workspace>/examples/<brand-id>-kolo-create.pptx path",
+    )
 
     pdf = commands.add_parser("pdf", help="Design a PDF with a saved design system")
     pdf_commands = pdf.add_subparsers(dest="pdf_command", required=True)
@@ -50,6 +57,16 @@ def parser() -> argparse.ArgumentParser:
     compare.add_argument("--output-dir", type=Path, required=True)
     compare.add_argument("--planner", choices=("deterministic", "llm"), default="deterministic")
     compare.add_argument("--model", help="Workspace-entitled model ID; required with --planner llm")
+
+    powerpoint = commands.add_parser("powerpoint", help="Design an editable PowerPoint with a saved design system")
+    powerpoint_commands = powerpoint.add_subparsers(dest="powerpoint_command", required=True)
+    powerpoint_create = powerpoint_commands.add_parser("create")
+    powerpoint_create.add_argument("--system", type=Path, required=True)
+    powerpoint_create.add_argument("--content", type=Path, required=True)
+    powerpoint_create.add_argument("--prompt", required=True)
+    powerpoint_create.add_argument("--output", type=Path, required=True)
+    powerpoint_create.add_argument("--planner", choices=("deterministic", "llm"), default="deterministic")
+    powerpoint_create.add_argument("--model", help="Workspace-entitled model ID; required with --planner llm")
     return root
 
 
@@ -76,6 +93,24 @@ def main(argv: list[str] | None = None) -> int:
                 DeterministicPlanner(),
             )
             result["example_pdf"] = example
+            presentation_output = args.example_presentation_output or (
+                args.workspace.resolve() / "examples" / f"{result['brand_id']}-kolo-create.pptx"
+            )
+            result["example_powerpoint"] = create_presentation(
+                Path(result["design_system"]),
+                example_source,
+                "Explain Kolo Create as a concise, brand-led presentation",
+                presentation_output,
+                DeterministicPresentationPlanner(),
+            )
+        elif args.command == "powerpoint":
+            if args.planner == "llm":
+                if not args.model:
+                    raise ValueError("--model is required with --planner llm")
+                presentation_planner = OpenAICompatiblePresentationPlanner.from_environment(args.model)
+            else:
+                presentation_planner = DeterministicPresentationPlanner()
+            result = create_presentation(args.system, args.content, args.prompt, args.output, presentation_planner)
         else:
             if args.planner == "llm":
                 if not args.model:

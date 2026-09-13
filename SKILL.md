@@ -1,8 +1,8 @@
 ---
 name: kolo-create
-description: Create a reusable design system from a public website or renderable frontend source, then use that saved system with user-supplied text and a design prompt to produce a polished, verified PDF. Use when a user wants to capture brand language, generate branded documents, refresh a saved brand, or reuse a brand across new PDFs.
+description: Create a reusable design system from a public website or renderable frontend source, then use that saved system with user-supplied text and a design prompt to produce a polished PDF or editable PowerPoint. Use when a user wants to capture brand language, generate branded documents or presentations, refresh a saved brand, or reuse a brand across formats.
 metadata:
-  version: "0.12.0"
+  version: "0.13.0"
 ---
 
 # Kolo Create
@@ -10,10 +10,10 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.12.0
+version: 0.13.0
 ```
 
-Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: website extraction creates a reusable versioned design system; PDF generation consumes an exact saved version without recrawling or modifying it.
+Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: extraction creates a reusable versioned design system; artifact generation consumes an exact saved version without recrawling or modifying it.
 
 ## 1. Create the design system
 
@@ -25,9 +25,9 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 
 For frontend source, replace `--url` with exactly one of `--repo-url "https://github.com/org/public-repo"`, `--source-dir "/path/to/source"`, or `--source-archive "/path/to/source.zip"`. Prefer an existing static entry (`index.html`, `dist`, `build`, `out`, `public`, or `storybook-static`). If none exists, render a deterministic source-derived component specimen and clearly disclose that route fidelity is unverified. Never execute package scripts, framework servers, or backend code.
 
-Return the design-system JSON, separate brand-components library, specimen, source screenshot, screen-media source-webpage PDF, source-webpage quality report, brand ID, evidence counts, and the first branded example PDF. The source PDF is the cleaned Chromium page Kolo analyzed and is retained as human-reviewable evidence. The example is a canonical explanation of Kolo Create rendered in the new system; it makes the extraction immediately testable while remaining a separate PDF-generation stage internally. Explain that observed values are evidence while semantic token roles and component recipes are deterministic candidates.
+Return the design-system JSON, separate brand-components library, specimen, source screenshot, screen-media source-webpage PDF, source-webpage quality report, brand ID, evidence counts, and the first branded PDF and PowerPoint examples. The source PDF is the cleaned Chromium page Kolo analyzed and is retained as human-reviewable evidence. The examples explain Kolo Create in the new system; they make extraction immediately testable while remaining a separate artifact-generation stage internally. Explain that observed values are evidence while semantic token roles and component recipes are deterministic candidates.
 
-The create-design-system command always renders the bundled Kolo Create explainer to `<workspace>/examples/<brand-id>-kolo-create.pdf`. `--example-output` is an optional path override, not an enable switch. Return the example result on every successful command, then follow **Deliver generated PDFs** below for that example PDF.
+The create-design-system command always renders the bundled Kolo Create explainer to `<workspace>/examples/<brand-id>-kolo-create.pdf` and `<workspace>/examples/<brand-id>-kolo-create.pptx`. `--example-output` and `--example-presentation-output` are optional path overrides, not enable switches. Return both example results on every successful command, then deliver both files.
 
 The design system includes more than tokens: capture observed heading levels, semantically ranked primary and secondary calls to action, component variants, cards, navigation, section surfaces, hero imagery, imagery proportions, borders, radii, shadows, padding, alignment, and common labels. Before sampling, dismiss common consent overlays. Prefer the visible header wordmark—including text-rendered brand links—over social-preview artwork, reject browser-default or unpainted stylesheet colors as brand roles, and retain confidence plus provenance for major selections. When document roots are transparent, derive the canvas from dominant visible painted regions. Store a multi-color brand palette including a saturated dark support role when observed, portable font categories, overlay evidence, and visual-language signals such as media coverage, density, and whether the sampled viewport is product-, media-, illustration-, interface-, or typography-led. Return the separate component-inventory path as well.
 
@@ -63,26 +63,38 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 
 The LLM route requires `KOLO_LLM_BASE_URL` and `KOLO_LLM_TOKEN`. Choose the model from the current workspace catalog, entitlement, evaluated capability, and budget. The model may arrange stable source-block IDs but code owns the copy and rejects omitted, repeated, or invented blocks. Never assume another workspace's model list, silently upgrade models, or silently fall back after a failed paid call.
 
-## Deliver generated PDFs
+## 3. Create a PowerPoint
 
-For the automatic first example and every user-requested PDF, use the exact validated PDF path returned by the command. Do not regenerate a delivery copy.
+When the user requests slides, use the saved design system with the same source-text-plus-prompt contract:
+
+```sh
+uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design powerpoint create --system "<design-system.json>" --content "<source.txt-or-md>" --prompt "<presentation direction>" --output "<result.pptx>"
+```
+
+Set `KOLO_PRESENTATION_NODE_MODULES` to the Node modules directory containing `@oai/artifact-tool`; set `KOLO_PRESENTATION_NODE` only when `node` is not on `PATH`. The deterministic slide planner makes no model calls, preserves every stable source block exactly once, and assigns discrete cover, statement, process, feature-list, section, image-led, or closing roles. The renderer creates a 16:9 deck with editable text, shapes, and images, uses each selected image only once, and chooses Office-safe typography according to the extracted serif or sans-serif role. It returns the PPTX, slide plan, per-slide PNG previews and layout exports, a quality report, and the exact design-system version.
+
+For semantic narrative restructuring, add `--planner llm --model "<workspace-entitled-model>"`. The PowerPoint planner follows the same workspace catalog and credential rules as the PDF planner. Do not convert PDF pages into slide images.
+
+## Deliver generated artifacts
+
+For automatic examples and every user-requested PDF or PowerPoint, use the exact validated artifact path returned by the command. Do not regenerate a delivery copy.
 
 1. Confirm the returned path exists and is inside the agent workspace.
 2. Use `sessions_list` to find the current conversation's exact `deliveryContext.to` value. It must have the form `kolo:<chat-uuid>`.
-3. Attach the PDF to this chat with the `message` tool:
+3. Attach the artifact to this chat with the `message` tool:
 
 ```json
 {
   "action": "send",
   "channel": "kolo",
   "target": "<deliveryContext.to>",
-  "message": "Here is your Kolo Create PDF.",
-  "media": "<returned PDF path>",
-  "filename": "<PDF filename>"
+  "message": "Here is your Kolo Create artifact.",
+  "media": "<returned artifact path>",
+  "filename": "<artifact filename>"
 }
 ```
 
-4. Open that same PDF in Kolo's visible desktop browser with `chromium "<returned PDF path>"`. Use the bare `chromium` launcher supplied by Kolo; never call `/usr/bin/chromium` or pass a custom profile. Kolo routes local files into an isolated visible Chromium profile because the shared agent-controlled profile intentionally rejects `file://` navigation.
+4. Open PDFs in Kolo's visible desktop browser with `chromium "<returned PDF path>"`. For PowerPoint, attach the file and open its generated preview folder or PDF preview when Kolo's browser cannot display PPTX directly. Use the bare `chromium` launcher supplied by Kolo; never call `/usr/bin/chromium` or pass a custom profile.
 5. Report attachment or browser-opening failures plainly, but do not hide a successful artifact if only one delivery surface fails.
 
 Do not use a plain `MEDIA:` directive: Kolo does not reliably render it as a chat attachment. Do not invent a chat target or use a bare UUID.

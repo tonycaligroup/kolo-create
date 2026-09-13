@@ -3,7 +3,7 @@
 Kolo Create is one Kolo skill with two reusable stages:
 
 1. Turn a public website or renderable frontend source into a versioned design system.
-2. Turn source text plus a design prompt into a verified PDF using that exact design-system version.
+2. Turn source text plus a design prompt into a verified PDF or editable PowerPoint using that exact design-system version.
 
 The second stage never recrawls or mutates the brand. This keeps artifacts reproducible while presenting one coherent skill to the user.
 
@@ -34,7 +34,15 @@ uv run kolo-design pdf compare \
   --content "./tests/fixtures/content.md" \
   --prompt "Create a bold executive brief called Kolo Create" \
   --output-dir "./output/kolo-create-comparison"
+
+uv run kolo-design powerpoint create \
+  --system "./data/brands/kolo/latest.json" \
+  --content "./tests/fixtures/content.md" \
+  --prompt "Create a concise brand presentation" \
+  --output "./output/kolo-create.pptx"
 ```
+
+PowerPoint generation uses native editable text, shapes, and images through the JavaScript presentation runtime. Set `KOLO_PRESENTATION_NODE_MODULES` to the `node_modules` directory containing `@oai/artifact-tool`; optionally set `KOLO_PRESENTATION_NODE` when `node` is not on `PATH`.
 
 Website extraction prefers Chromium-rendered computed styles, dismisses common consent overlays, captures a clean source screenshot and screen-media source-webpage PDF, and falls back to bounded static HTML/CSS extraction. Frontend source ingestion accepts a local directory, ZIP, or public HTTPS GitHub repository and renders an existing `index.html`, `dist`, `build`, `out`, `public`, or Storybook static output on loopback. If no static route exists, it renders a deterministic source-derived component specimen and records route fidelity as unverified. It never runs package scripts or backend code, and blocks external requests during the source render. The source PDF uses backgrounds, bounded lazy-content loading, and a frozen visual state. A low-resolution raster sanity check grades the export and tests whether proposed semantic colors actually appear in either rendered artifact. Unsupported secondary accents collapse to the primary accent, while unsupported dark roles can be replaced only by a visibly supported dark candidate. The browser path can recover sites that reject the lightweight HTTP client while still rejecting error pages. Palette scoring distinguishes page, surface, text, primary accent, secondary accent, and dark brand-support roles; derives transparent-root canvases from dominant painted regions; rejects browser-default and unpainted stylesheet colors; and excludes detected consent or modal overlays. Logo discovery prefers the visible header wordmark—including text-rendered brand links—over social-preview artwork, calls to action are ranked by semantic purpose rather than frequency alone, and large visible media is stored with semantic labels, dimensions, role, and provenance. Major selections retain confidence and provenance. It rejects private-network website targets and validates every HTTP redirect.
 
@@ -53,7 +61,7 @@ kolo-design create design-system --source-archive "../site.zip" --workspace ./da
 
 The comparison command evaluates two renderers without paying for two planning calls. It produces the current ReportLab PDF and a candidate HTML/CSS document and PDF from one validated plan, runs DOM overflow and grid-alignment checks, and generates side-by-side page previews plus a comparison manifest. ReportLab remains the default while repeated review determines which browser patterns deserve promotion.
 
-Every successful design-system command automatically renders the bundled Kolo Create explainer to `<workspace>/examples/<brand-id>-kolo-create.pdf`. `--example-output` optionally overrides that destination; it does not enable the behavior. The two stages remain separate internally, but this automatic first artifact makes every extraction immediately comparable without a model call.
+Every successful design-system command automatically renders the bundled Kolo Create explainer to `<workspace>/examples/<brand-id>-kolo-create.pdf` and `<workspace>/examples/<brand-id>-kolo-create.pptx`. `--example-output` and `--example-presentation-output` optionally override those destinations; they do not enable the behavior. The two stages remain separate internally, but these automatic first artifacts make every extraction immediately comparable without a model call.
 
 When the skill runs inside Kolo, its delivery contract attaches that validated example PDF to the current chat with Kolo's `message` tool and opens the same local file in the visible Kolo desktop browser. User-requested PDFs follow the same contract. The command-line program itself remains UI-independent: it returns the artifact path, while the skill performs chat and browser delivery so the renderer stays reusable in other environments.
 
@@ -72,6 +80,14 @@ uv run kolo-design pdf create \
   --content "./content.md" \
   --prompt "Restructure this into a concise board update" \
   --output "./output/board-update.pdf" \
+  --planner llm \
+  --model "workspace-entitled-model-id"
+
+uv run kolo-design powerpoint create \
+  --system "./data/brands/kolo/latest.json" \
+  --content "./content.md" \
+  --prompt "Shape this into a concise leadership presentation" \
+  --output "./output/leadership-update.pptx" \
   --planner llm \
   --model "workspace-entitled-model-id"
 ```

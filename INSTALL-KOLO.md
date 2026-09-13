@@ -27,6 +27,8 @@ uv run --extra dev pytest -q
 
 If Chromium is not `/usr/local/bin/chromium`, set `KOLO_CHROMIUM_PATH` to the actual executable.
 
+PowerPoint generation also requires Node.js and `@oai/artifact-tool`. Set `KOLO_PRESENTATION_NODE_MODULES` to the `node_modules` directory containing that package. If Node.js is not on `PATH`, set `KOLO_PRESENTATION_NODE` to its executable. The readiness command verifies both before the first extraction because every new design system now receives an automatic PowerPoint example.
+
 ## First Kolo trial
 
 Create the design system:
@@ -48,6 +50,16 @@ uv run kolo-design pdf create \
   --output "/home/node/.openclaw/kolo-create-data/output/your-company-brief.pdf"
 ```
 
-The extraction output contains an immutable `1.0.0` design system, `latest.json`, source screenshot, logo asset, evidence, component inventory, and specimen. PDF output includes previews and a quality report.
+Or create an editable PowerPoint:
+
+```sh
+uv run kolo-design powerpoint create \
+  --system "/home/node/.openclaw/kolo-create-data/brands/your-company/latest.json" \
+  --content "/path/to/source.md" \
+  --prompt "Create a concise leadership presentation" \
+  --output "/home/node/.openclaw/kolo-create-data/output/your-company-deck.pptx"
+```
+
+The extraction output contains an immutable `1.0.0` design system, `latest.json`, source screenshot, logo asset, evidence, component inventory, specimen, and automatic Kolo Create examples in PDF and PowerPoint. Both renderers return previews, an inspectable plan, and a quality report.
 
 Optional LLM planning requires `KOLO_LLM_BASE_URL`, `KOLO_LLM_TOKEN`, `--planner llm`, and an explicit model ID selected from that workspace's catalog and entitlement.

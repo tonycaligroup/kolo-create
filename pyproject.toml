@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kolo-create"
-version = "0.12.0"
-description = "Unified website/source-to-design-system and design-system-to-PDF skill for Kolo"
+version = "0.13.0"
+description = "Unified brand extraction and branded PDF/PowerPoint creation skill for Kolo"
 requires-python = ">=3.11"
 dependencies = [
   "beautifulsoup4>=4.12,<5",

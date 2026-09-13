@@ -4,6 +4,8 @@
 *.py[cod]
 *.egg-info/
 .system-lab/
+.codex-build/
+.codex-finalizer/
 evidence/
 output/
 tmp/

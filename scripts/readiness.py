@@ -17,12 +17,17 @@ browser_candidates = [
 ]
 browser = next((value for value in browser_candidates if value and Path(value).exists()), None)
 renderer = shutil.which("pdftoppm")
-status = "pass" if not missing and browser and renderer else "fail"
+node = os.environ.get("KOLO_PRESENTATION_NODE") or shutil.which("node")
+node_modules = Path(os.environ.get("KOLO_PRESENTATION_NODE_MODULES", "")).expanduser()
+presentation_runtime = node_modules / "@oai" / "artifact-tool"
+status = "pass" if not missing and browser and renderer and node and presentation_runtime.is_dir() else "fail"
 print(json.dumps({
     "status": status,
     "missing": missing,
     "chromium": browser,
     "pdftoppm": renderer,
+    "node": node,
+    "presentation_runtime": str(presentation_runtime) if presentation_runtime.is_dir() else None,
     "paid_calls": 0,
 }, sort_keys=True))
 raise SystemExit(0 if status == "pass" else 1)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -28,6 +30,8 @@ from kolo_design.pdf_designer import (
     create_pdf,
 )
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
+from kolo_design.presentation_planner import DeterministicPresentationPlanner, validate_presentation_plan
+from kolo_design.presentation_designer import create_presentation
 from kolo_design.util import read_json
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -243,6 +247,46 @@ def test_compare_renderers_command_contract() -> None:
     assert args.planner == "deterministic"
 
 
+def test_powerpoint_create_command_contract() -> None:
+    args = parser().parse_args([
+        "powerpoint", "create", "--system", "./system.json", "--content", "./content.md",
+        "--prompt", "Create a concise deck", "--output", "./deck.pptx",
+    ])
+    assert args.command == "powerpoint"
+    assert args.powerpoint_command == "create"
+    assert args.output == Path("./deck.pptx")
+    assert args.planner == "deterministic"
+
+
+def test_presentation_plan_preserves_blocks_and_uses_slide_archetypes() -> None:
+    content = (Path(__file__).parents[1] / "assets" / "kolo-create-explainer.md").read_text(encoding="utf-8")
+    blocks = source_blocks(content)
+    plan = DeterministicPresentationPlanner().plan(content, "Create a concise presentation", blocks)
+    validate_presentation_plan(plan, blocks)
+    planned = [block_id for slide in plan["slides"] for block_id in slide["block_ids"]]
+    assert planned == [block["id"] for block in blocks]
+    assert plan["aspect_ratio"] == "16:9"
+    assert plan["slides"][0]["archetype"] == "cover"
+    assert {slide["archetype"] for slide in plan["slides"]} >= {"cover", "process", "feature-list", "closing"}
+
+
+@pytest.mark.skipif(not os.environ.get("KOLO_PRESENTATION_NODE_MODULES"), reason="presentation runtime is optional in tests")
+def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
+    output = tmp_path / "designed.pptx"
+    result = create_presentation(
+        FIXTURES / "design-system.json",
+        FIXTURES / "content.md",
+        "Create a concise brand presentation",
+        output,
+    )
+    assert result["status"] == "succeeded"
+    assert result["renderer"] == "artifact-tool/1"
+    assert result["slides"] == 4
+    assert zipfile.is_zipfile(output)
+    assert len(result["previews"]) == result["slides"]
+    assert Path(result["quality"]).exists()
+
+
 def test_html_renderer_helpers_preserve_markup_and_page_ownership() -> None:
     assert _inline_html("A **strong** [link](https://example.com)") == (
         'A <strong>strong</strong> <a href="https://example.com">link</a>'
@@ -257,7 +301,7 @@ def test_create_design_system_can_render_bundled_first_example(monkeypatch: pyte
     monkeypatch.setattr(
         cli_module,
         "extract_brand",
-        lambda url, workspace, name: {"status": "succeeded", "design_system": str(system_path)},
+        lambda url, workspace, name: {"status": "succeeded", "design_system": str(system_path), "brand_id": "sample-brand"},
     )
     captured: dict[str, Path] = {}
 
@@ -266,6 +310,7 @@ def test_create_design_system_can_render_bundled_first_example(monkeypatch: pyte
         return {"status": "succeeded", "pdf": str(output)}
 
     monkeypatch.setattr(cli_module, "create_pdf", fake_create_pdf)
+    monkeypatch.setattr(cli_module, "create_presentation", lambda *args, **kwargs: {"status": "succeeded", "pptx": str(tmp_path / "first-example.pptx")})
     status = cli_module.main([
         "create", "design-system", "--url", "https://example.com", "--workspace", str(tmp_path),
         "--example-output", str(example_path),
@@ -295,6 +340,12 @@ def test_create_design_system_automatically_renders_default_first_example(
         return {"status": "succeeded", "pdf": str(output)}
 
     monkeypatch.setattr(cli_module, "create_pdf", fake_create_pdf)
+    powerpoint: dict[str, Path] = {}
+    monkeypatch.setattr(
+        cli_module,
+        "create_presentation",
+        lambda system, content, prompt, output, planner: powerpoint.update(system=system, content=content, output=output) or {"status": "succeeded", "pptx": str(output)},
+    )
     status = cli_module.main([
         "create", "design-system", "--url", "https://example.com", "--workspace", str(tmp_path),
     ])
@@ -302,6 +353,7 @@ def test_create_design_system_automatically_renders_default_first_example(
     assert captured["system"] == system_path
     assert captured["output"] == tmp_path / "examples" / "sample-brand-kolo-create.pdf"
     assert captured["content"].name == "kolo-create-explainer.md"
+    assert powerpoint["output"] == tmp_path / "examples" / "sample-brand-kolo-create.pptx"
 
 
 def test_source_design_system_also_renders_default_first_example(
@@ -323,12 +375,19 @@ def test_source_design_system_also_renders_default_first_example(
         return {"status": "succeeded", "pdf": str(output)}
 
     monkeypatch.setattr(cli_module, "create_pdf", fake_create_pdf)
+    powerpoint: dict[str, Path] = {}
+    monkeypatch.setattr(
+        cli_module,
+        "create_presentation",
+        lambda system, content, prompt, output, planner: powerpoint.update(system=system, output=output) or {"status": "succeeded", "pptx": str(output)},
+    )
     status = cli_module.main([
         "create", "design-system", "--source-dir", str(source), "--workspace", str(tmp_path),
     ])
     assert status == 0
     assert captured["system"] == system_path
     assert captured["output"] == tmp_path / "examples" / "source-brand-kolo-create.pdf"
+    assert powerpoint["output"] == tmp_path / "examples" / "source-brand-kolo-create.pptx"
 
 
 def test_composition_uses_brand_and_content_signals() -> None:
