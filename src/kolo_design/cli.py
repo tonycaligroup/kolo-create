@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .extractor import extract_brand
+from .html_designer import compare_pdf_renderers, create_html_pdf
 from .network import FetchError
 from .pdf_designer import create_pdf
 from .planner import DeterministicPlanner, OpenAICompatiblePlanner
@@ -35,6 +36,15 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--output", type=Path, required=True)
     create.add_argument("--planner", choices=("deterministic", "llm"), default="deterministic")
     create.add_argument("--model", help="Workspace-entitled model ID; required with --planner llm")
+    create.add_argument("--renderer", choices=("reportlab", "html"), default="reportlab")
+
+    compare = pdf_commands.add_parser("compare", help="Render the same plan with ReportLab and HTML/CSS")
+    compare.add_argument("--system", type=Path, required=True)
+    compare.add_argument("--content", type=Path, required=True)
+    compare.add_argument("--prompt", required=True)
+    compare.add_argument("--output-dir", type=Path, required=True)
+    compare.add_argument("--planner", choices=("deterministic", "llm"), default="deterministic")
+    compare.add_argument("--model", help="Workspace-entitled model ID; required with --planner llm")
     return root
 
 
@@ -60,7 +70,12 @@ def main(argv: list[str] | None = None) -> int:
                 planner_impl = OpenAICompatiblePlanner.from_environment(args.model)
             else:
                 planner_impl = DeterministicPlanner()
-            result = create_pdf(args.system, args.content, args.prompt, args.output, planner_impl)
+            if args.pdf_command == "compare":
+                result = compare_pdf_renderers(args.system, args.content, args.prompt, args.output_dir, planner_impl)
+            elif args.renderer == "html":
+                result = create_html_pdf(args.system, args.content, args.prompt, args.output, planner_impl)
+            else:
+                result = create_pdf(args.system, args.content, args.prompt, args.output, planner_impl)
         print(json.dumps(result, sort_keys=True))
         return 0
     except FetchError as exc:

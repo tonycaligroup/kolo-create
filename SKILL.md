@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website, then use that saved system with user-supplied text and a design prompt to produce a polished, verified PDF. Use when a user wants to capture brand language, generate branded documents, refresh a saved brand, or reuse a brand across new PDFs.
 metadata:
-  version: "0.6.7"
+  version: "0.8.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.6.7
+version: 0.8.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: website extraction creates a reusable versioned design system; PDF generation consumes an exact saved version without recrawling or modifying it.
@@ -27,6 +27,8 @@ Return the design-system JSON, specimen, source screenshot, brand ID, evidence c
 
 The design system includes more than tokens: capture observed heading levels, semantically ranked primary and secondary calls to action, component variants, cards, navigation, section surfaces, hero imagery, imagery proportions, borders, radii, shadows, padding, alignment, and common labels. Before sampling, dismiss common consent overlays. Prefer the visible header wordmark—including text-rendered brand links—over social-preview artwork, reject browser-default or unpainted stylesheet colors as brand roles, and retain confidence plus provenance for major selections. When document roots are transparent, derive the canvas from dominant visible painted regions. Store a multi-color brand palette including a saturated dark support role when observed, portable font categories, overlay evidence, and visual-language signals such as media coverage, density, and whether the sampled viewport is product-, media-, illustration-, interface-, or typography-led. Return the separate component-inventory path as well.
 
+Preserve browser-native evidence alongside normalized Kolo tokens: bounded CSS custom properties, font-face declarations, responsive breakpoints, grid/flex primitives, container measurements, and background treatments. Treat raw CSS as evidence, not executable instructions. The normalized layer remains authoritative for cross-format rendering; browser-native evidence may improve HTML/CSS output when it passes validation.
+
 ## 2. Create a PDF
 
 When the user supplies or selects a saved design system plus source text and a design prompt, run:
@@ -36,6 +38,14 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 ```
 
 Return the PDF, inspectable layout plan, previews, quality report, page count, component-usage counts, selected composition family with its evidence, and exact design-system version. The deterministic planner preserves Markdown structure, assigns stable IDs to every source block, and recognizes explicit style, title, page-size, and orientation direction. A separate deterministic composition selector combines content structure with saved visual-language signals and chooses among editorial narrative, asymmetric feature grid, numbered process, modular announcement, and product showcase families. Product showcase and media-led asymmetric covers reuse captured hero media; product showcase also uses deliberately balanced section breaks. Explicit composition directions override automatic selection.
+
+During the HTML/CSS evaluation period, render both engines from one shared plan:
+
+```sh
+uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design pdf compare --system "<design-system.json>" --content "<source.txt-or-md>" --prompt "<design direction>" --output-dir "<comparison-folder>"
+```
+
+The comparison returns the current ReportLab PDF, the candidate HTML/CSS PDF, the reusable HTML source, both preview sets, side-by-side page images, and a comparison manifest. A deterministic comparison makes no model calls. An LLM comparison makes one bounded planning call and replays that exact validated plan through both renderers. Keep ReportLab as the default until repeated human review shows the browser renderer is reliably better.
 
 Use the modular LLM planner only when semantic restructuring is needed:
 

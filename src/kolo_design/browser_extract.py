@@ -271,7 +271,10 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
                         font_family: s.fontFamily, font_size: s.fontSize, font_weight: s.fontWeight,
                         line_height: s.lineHeight, letter_spacing: s.letterSpacing, text_align: s.textAlign,
                         padding: `${s.paddingTop} ${s.paddingRight} ${s.paddingBottom} ${s.paddingLeft}`,
-                        display: s.display, object_fit: s.objectFit, position: s.position, z_index: s.zIndex
+                        display: s.display, gap: s.gap, grid_template_columns: s.gridTemplateColumns,
+                        grid_template_rows: s.gridTemplateRows, max_width: s.maxWidth, min_width: s.minWidth,
+                        overflow: s.overflow, object_fit: s.objectFit, object_position: s.objectPosition,
+                        position: s.position, z_index: s.zIndex
                       }
                     };
                   });

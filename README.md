@@ -23,13 +23,21 @@ uv run kolo-design pdf create \
   --content "./tests/fixtures/content.md" \
   --prompt "Create a bold executive brief called Kolo Create" \
   --output "./output/kolo-create.pdf"
+
+uv run kolo-design pdf compare \
+  --system "./data/brands/kolo/latest.json" \
+  --content "./tests/fixtures/content.md" \
+  --prompt "Create a bold executive brief called Kolo Create" \
+  --output-dir "./output/kolo-create-comparison"
 ```
 
 Website extraction prefers Chromium-rendered computed styles, dismisses common consent overlays, captures a clean source screenshot, and falls back to bounded static HTML/CSS extraction. The browser path can recover sites that reject the lightweight HTTP client while still rejecting error pages. Palette scoring distinguishes page, surface, text, primary accent, secondary accent, and saturated dark brand-support roles; derives transparent-root canvases from dominant painted regions; rejects browser-default and unpainted stylesheet colors; and excludes detected consent or modal overlays. Logo discovery prefers the visible header wordmark—including text-rendered brand links—over social-preview artwork, calls to action are ranked by semantic purpose rather than frequency alone, and large visible hero assets are saved for reuse. Major selections retain confidence and provenance. It rejects private-network targets and validates every HTTP redirect.
 
-The resulting design system includes component variants for heading hierarchy, buttons, cards, navigation, and section surfaces, plus captured hero imagery, imagery proportions, borders, radii, shadows, padding, and alignment. It also records portable font categories and visual-language signals including media coverage, viewport density, dominant alignment, overlay count, and an observed presentation mode—including product-led sites. A separate component inventory and expanded specimen make the extracted language inspectable before reuse.
+The resulting design system includes component variants for heading hierarchy, buttons, cards, navigation, and section surfaces, plus captured hero imagery, imagery proportions, borders, radii, shadows, padding, and alignment. It also records portable font categories and visual-language signals including media coverage, viewport density, dominant alignment, overlay count, and an observed presentation mode—including product-led sites. Browser-native evidence preserves bounded CSS custom properties, font-face declarations, breakpoints, grid/flex primitives, and background treatments alongside the normalized cross-renderer tokens. A separate component inventory and expanded specimen make the extracted language inspectable before reuse.
 
 PDF creation compiles source Markdown into stable content-block IDs and an inspectable, format-independent layout plan. A code-owned composition selector combines source structure with saved visual-language evidence, then chooses an editorial narrative, asymmetric feature grid, numbered process, modular announcement, or product showcase. Product showcase and media-led asymmetric covers reuse captured hero imagery, while canonical product sections are spaced across balanced pages. The renderer maps the blocks into that family with extracted heading, card, callout, and action recipes, then reopens the final document, measures source-content coverage, renders PNG previews with Poppler, and writes a quality report.
+
+The comparison command evaluates two renderers without paying for two planning calls. It produces the current ReportLab PDF and a candidate HTML/CSS document and PDF from one validated plan, runs DOM overflow and grid-alignment checks, and generates side-by-side page previews plus a comparison manifest. ReportLab remains the default while repeated review determines which browser patterns deserve promotion.
 
 `--example-output` keeps the two stages separate but runs them back-to-back: after extraction it renders the bundled Kolo Create explainer with the new system. This provides an immediate, comparable first artifact for every brand without a model call.
 

@@ -10,6 +10,8 @@ import kolo_design.cli as cli_module
 from kolo_design.composition import select_composition, validate_composition
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
+from kolo_design.browser_extract import _browser_executable
+from kolo_design.html_designer import _inline_html, _page_groups, create_html_pdf
 from kolo_design.network import FetchError, assert_public_url
 from kolo_design.pdf_designer import (
     _bounded_radius,
@@ -90,6 +92,24 @@ def test_create_design_system_command_contract() -> None:
     assert args.example_output == Path("./example.pdf")
 
 
+def test_compare_renderers_command_contract() -> None:
+    args = parser().parse_args([
+        "pdf", "compare", "--system", "./system.json", "--content", "./content.md",
+        "--prompt", "Create a brief", "--output-dir", "./comparison",
+    ])
+    assert args.pdf_command == "compare"
+    assert args.output_dir == Path("./comparison")
+    assert args.planner == "deterministic"
+
+
+def test_html_renderer_helpers_preserve_markup_and_page_ownership() -> None:
+    assert _inline_html("A **strong** [link](https://example.com)") == (
+        'A <strong>strong</strong> <a href="https://example.com">link</a>'
+    )
+    sections = [{"id": f"s{index}"} for index in range(1, 7)]
+    assert _page_groups(sections) == [sections[:3], sections[3:]]
+
+
 def test_create_design_system_can_render_bundled_first_example(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     system_path = tmp_path / "design-system.json"
     example_path = tmp_path / "first-example.pdf"
@@ -167,6 +187,23 @@ def test_pdf_vertical_slice(tmp_path: Path) -> None:
     assert layout["composition"]["family"] in {
         "editorial_narrative", "asymmetric_feature_grid", "numbered_process", "modular_announcement", "product_showcase"
     }
+
+
+@pytest.mark.skipif(_browser_executable() is None, reason="Chromium is required")
+def test_html_pdf_vertical_slice(tmp_path: Path) -> None:
+    output = tmp_path / "designed-html.pdf"
+    result = create_html_pdf(
+        FIXTURES / "design-system.json",
+        FIXTURES / "content.md",
+        "Create a bold executive brief",
+        output,
+    )
+    assert result["status"] == "succeeded"
+    assert result["renderer"] == "html-css/1"
+    assert result["pages"] == 3
+    assert Path(result["html"]).exists()
+    assert Path(result["quality_report"]).exists()
+    assert len(PdfReader(str(output)).pages) == 3
 
 
 def test_deterministic_layout_uses_cards_and_preserves_block_ids() -> None:

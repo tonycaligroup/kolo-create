@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright
 from kolo_design.browser_extract import _browser_executable, _dismiss_overlays
 
 from kolo_design.extractor import (
+    _browser_native_evidence,
     _choose_colors,
     _choose_fonts,
     _color_to_hex,
@@ -19,6 +20,34 @@ from kolo_design.extractor import (
     _spacing,
     _visual_language,
 )
+
+
+def test_browser_native_evidence_preserves_css_for_future_renderers() -> None:
+    css = """
+    :root { --brand-blue: #123456; --space-lg: 32px; --private-key: do-not-store; }
+    @font-face { font-family: 'Brand Sans'; font-weight: 700; src: url('/brand.woff2'); }
+    @media (min-width: 768px) { .grid { display: grid; } }
+    @media (max-width: 1200px) { .grid { gap: 24px; } }
+    """
+    rendered = {
+        "viewport": {"width": 1440, "height": 1100},
+        "elements": [{
+            "tag": "section", "rect": {"width": 1120, "height": 500},
+            "viewport": {"visible": True, "area_ratio": 0.35},
+            "semantic": {"region": "main", "overlay": False},
+            "style": {
+                "display": "grid", "gap": "24px", "grid_template_columns": "1fr 1fr",
+                "grid_template_rows": "auto", "max_width": "1120px", "padding": "32px",
+                "background_image": "linear-gradient(#fff, #eee)",
+            },
+        }],
+    }
+    evidence = _browser_native_evidence(css, rendered)
+    assert evidence["breakpoints_px"] == [768, 1200]
+    assert {item["name"] for item in evidence["css_custom_properties"]} == {"--brand-blue", "--space-lg"}
+    assert evidence["font_faces"][0]["family"] == "Brand Sans"
+    assert evidence["layout_primitives"][0]["columns"] == "1fr 1fr"
+    assert evidence["background_treatments"] == ["linear-gradient(#fff, #eee)"]
 
 
 def test_consent_cleanup_removes_orphaned_fullscreen_backdrop() -> None:

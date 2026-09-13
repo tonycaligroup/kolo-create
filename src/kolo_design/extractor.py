@@ -30,6 +30,8 @@ SPACE_PATTERN = re.compile(r"(?:margin|padding|gap|row-gap|column-gap)(?:-[a-z]+
 RADIUS_PATTERN = re.compile(r"border-radius\s*:\s*(\d+(?:\.\d+)?)px", re.I)
 WIDTH_PATTERN = re.compile(r"(?:max-width|width)\s*:\s*(\d{3,4})px", re.I)
 CSS_VAR_PATTERN = re.compile(r"--([\w-]+)\s*:\s*([^;}{]+)")
+MEDIA_WIDTH_PATTERN = re.compile(r"@media[^\{]*\((?:min|max)-width\s*:\s*(\d+(?:\.\d+)?)px\)", re.I)
+FONT_FACE_PATTERN = re.compile(r"@font-face\s*\{([^}]+)\}", re.I | re.S)
 BROWSER_DEFAULT_COLORS = {"#0000EE", "#551A8B", "#0000FF"}
 
 
@@ -606,6 +608,75 @@ def _visual_language(rendered: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _browser_native_evidence(css: str, rendered: dict[str, Any] | None) -> dict[str, Any]:
+    """Preserve bounded web-native evidence without replacing normalized tokens."""
+    variable_counts: Counter[tuple[str, str]] = Counter()
+    for name, raw in CSS_VAR_PATTERN.findall(css):
+        value = re.sub(r"\s+", " ", raw.strip())[:240]
+        lowered = name.lower()
+        if value and not any(marker in lowered for marker in ("secret", "password", "private-key", "access-token")):
+            variable_counts[(name, value)] += 1
+    custom_properties = [
+        {"name": f"--{name}", "value": value, "occurrences": count}
+        for (name, value), count in variable_counts.most_common(160)
+    ]
+
+    font_faces: list[dict[str, str]] = []
+    for body in FONT_FACE_PATTERN.findall(css)[:24]:
+        declarations = {key.lower(): value.strip() for key, value in re.findall(r"([\w-]+)\s*:\s*([^;]+)", body)}
+        family = declarations.get("font-family", "").strip(" '\"")
+        if family:
+            font_faces.append({
+                "family": family[:120],
+                "weight": declarations.get("font-weight", "normal")[:40],
+                "style": declarations.get("font-style", "normal")[:40],
+                "display": declarations.get("font-display", "auto")[:40],
+                "source": declarations.get("src", "")[:300],
+            })
+
+    elements = [item for item in (rendered or {}).get("elements", []) if _in_primary_view(item)]
+    containers = [
+        item for item in elements
+        if (item.get("style") or {}).get("display") in {"grid", "flex", "inline-grid", "inline-flex"}
+        and float((item.get("rect") or {}).get("width", 0)) >= 120
+    ]
+    layout_primitives = []
+    for item in sorted(containers, key=lambda value: float((value.get("rect") or {}).get("width", 0)), reverse=True)[:80]:
+        style, rect = item.get("style") or {}, item.get("rect") or {}
+        layout_primitives.append({
+            "display": style.get("display"),
+            "width": rect.get("width"),
+            "height": rect.get("height"),
+            "gap": style.get("gap"),
+            "columns": style.get("grid_template_columns"),
+            "rows": style.get("grid_template_rows"),
+            "max_width": style.get("max_width"),
+            "padding": style.get("padding"),
+            "region": (item.get("semantic") or {}).get("region"),
+        })
+    background_treatments = [
+        value for value, _ in Counter(
+            str((item.get("style") or {}).get("background_image"))
+            for item in elements
+            if (item.get("style") or {}).get("background_image") not in {None, "", "none"}
+        ).most_common(24)
+    ]
+    viewport = (rendered or {}).get("viewport") or {}
+    return {
+        "schema_version": 1,
+        "css_custom_properties": custom_properties,
+        "font_faces": font_faces,
+        "breakpoints_px": sorted({round(float(value)) for value in MEDIA_WIDTH_PATTERN.findall(css)})[:40],
+        "layout_primitives": layout_primitives,
+        "background_treatments": background_treatments,
+        "viewports_observed": [viewport] if viewport else [],
+        "limitations": [
+            "The current browser capture records one desktop viewport; responsive multi-viewport capture is the next extractor increment.",
+            "Font-face sources are evidence only and are not downloaded or embedded automatically.",
+        ],
+    }
+
+
 def _logo_candidates(soup: BeautifulSoup, base_url: str) -> list[tuple[int, str, str]]:
     candidates: list[tuple[int, str, str]] = []
     host_stem = (urlparse(base_url).hostname or "").lower().removeprefix("www.").split(".")[0]
@@ -892,6 +963,7 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
     content_width = Counter(widths).most_common(1)[0][0] if widths else 1120
     components = _component_inventory(rendered.get("elements", []) if rendered else [], colors)
     visual_language = _visual_language(rendered)
+    browser_native = _browser_native_evidence(css, rendered)
     screenshot_path = None
     if rendered and rendered.get("screenshot"):
         screenshot_path = brand_dir / "source-screenshot.png"
@@ -922,6 +994,7 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
         },
         "components": components,
         "visual_language": visual_language,
+        "browser_native": browser_native,
         "assets": assets,
         "evidence": {
             "colors": color_evidence,
