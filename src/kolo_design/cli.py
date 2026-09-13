@@ -24,7 +24,7 @@ def parser() -> argparse.ArgumentParser:
     design_system.add_argument(
         "--example-output",
         type=Path,
-        help="After extraction, render the bundled Kolo Create explainer with the saved system",
+        help="Override the automatic <workspace>/examples/<brand-id>-kolo-create.pdf path",
     )
 
     pdf = commands.add_parser("pdf", help="Design a PDF with a saved design system")
@@ -53,16 +53,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "create":
             result = extract_brand(args.url, args.workspace, args.name)
-            if args.example_output:
-                example_source = Path(__file__).resolve().parents[2] / "assets" / "kolo-create-explainer.md"
-                example = create_pdf(
-                    Path(result["design_system"]),
-                    example_source,
-                    "Explain Kolo Create using the composition best suited to this brand and content",
-                    args.example_output,
-                    DeterministicPlanner(),
-                )
-                result["example_pdf"] = example
+            example_output = args.example_output or (
+                args.workspace.resolve() / "examples" / f"{result['brand_id']}-kolo-create.pdf"
+            )
+            example_source = Path(__file__).resolve().parents[2] / "assets" / "kolo-create-explainer.md"
+            example = create_pdf(
+                Path(result["design_system"]),
+                example_source,
+                "Explain Kolo Create using the composition best suited to this brand and content",
+                example_output,
+                DeterministicPlanner(),
+            )
+            result["example_pdf"] = example
         else:
             if args.planner == "llm":
                 if not args.model:

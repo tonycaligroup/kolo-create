@@ -89,6 +89,8 @@ def _brand_dark(system: dict[str, Any], palette: dict[str, str]) -> str:
     excluded = {palette.get(role, "").upper() for role in ("background", "surface", "text", "accent", "accent_secondary")}
     candidates: list[tuple[int, str]] = []
     for item in (system.get("evidence") or {}).get("colors", []):
+        if item.get("reference_status") in {"weakly_supported", "contradicted"}:
+            continue
         value = str(item.get("value", "")).upper()
         if not re.fullmatch(r"#[0-9A-F]{6}", value) or value in excluded:
             continue

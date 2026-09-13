@@ -12,6 +12,9 @@ from playwright.sync_api import sync_playwright
 from .network import assert_public_url
 
 
+MAX_REFERENCE_PDF_BYTES = 45 * 1024 * 1024
+
+
 def _browser_executable() -> str | None:
     candidates = [
         os.environ.get("KOLO_CHROMIUM_PATH"),
@@ -132,6 +135,69 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
     return result
 
 
+def _freeze_motion(page: Any) -> None:
+    """Keep the screenshot, evidence sample, and PDF on one stable visual state."""
+    page.add_style_tag(content="""
+      *, *::before, *::after {
+        animation-play-state: paused !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+        caret-color: transparent !important;
+      }
+      html { scroll-behavior: auto !important; }
+    """)
+
+
+def _warm_lazy_content(page: Any) -> None:
+    """Bounded scrolling loads ordinary lazy media before the reference export."""
+    page.evaluate(
+        """async () => {
+          const viewport = Math.max(600, innerHeight);
+          const maximum = Math.min(document.documentElement.scrollHeight, viewport * 20);
+          const step = Math.max(600, Math.floor(viewport * 0.8));
+          for (let y = 0; y < maximum; y += step) {
+            scrollTo(0, y);
+            await new Promise((resolve) => setTimeout(resolve, 80));
+          }
+          scrollTo(0, 0);
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }"""
+    )
+
+
+def _reference_pdf(page: Any) -> tuple[bytes | None, dict[str, Any]]:
+    """Export the cleaned screen presentation as paginated browser evidence."""
+    try:
+        _warm_lazy_content(page)
+        page.emulate_media(media="screen")
+        document = page.evaluate(
+            """() => ({
+              width: document.documentElement.scrollWidth,
+              height: document.documentElement.scrollHeight
+            })"""
+        )
+        payload = page.pdf(
+            width="1440px",
+            height="1100px",
+            print_background=True,
+            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+        )
+        metadata = {
+            "status": "captured",
+            "bytes": len(payload),
+            "document": document,
+            "media": "screen",
+            "page_css_pixels": {"width": 1440, "height": 1100},
+            "print_background": True,
+        }
+        if len(payload) > MAX_REFERENCE_PDF_BYTES:
+            metadata.update({"status": "omitted_too_large", "maximum_bytes": MAX_REFERENCE_PDF_BYTES})
+            return None, metadata
+        return payload, metadata
+    except Exception as exc:
+        return None, {"status": "failed", "reason": type(exc).__name__}
+
+
 def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
     """Capture the strongest visible header/nav wordmark before metadata images."""
     brand = (urlparse(base_url).hostname or "").lower().removeprefix("www.").split(".")[0]
@@ -216,6 +282,7 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
             except PlaywrightTimeoutError:
                 pass
             page.wait_for_timeout(1200)
+            _freeze_motion(page)
             assert_public_url(page.url)
             overlay_actions = _dismiss_overlays(page)
             visible_logo = _visible_logo(page, page.url)
@@ -294,6 +361,9 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
             snapshot["overlay_actions"] = overlay_actions
             snapshot["visible_logo"] = visible_logo
             snapshot["screenshot"] = page.screenshot(full_page=False, type="png")
+            reference_pdf, reference_pdf_metadata = _reference_pdf(page)
+            snapshot["reference_pdf"] = reference_pdf
+            snapshot["reference_pdf_metadata"] = reference_pdf_metadata
             return snapshot
         finally:
             context.close()

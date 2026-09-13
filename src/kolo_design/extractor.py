@@ -20,6 +20,7 @@ from .browser_extract import browser_snapshot, rasterize_svg
 from .brand_components import build_brand_components
 from .contracts import validate_design_system
 from .network import MAX_ASSET_BYTES, MAX_HTML_BYTES, FetchError, fetch_limited
+from .reference_evidence import analyze_reference_pdf, reconcile_reference_colors
 from .util import atomic_write, sha256_bytes, slugify, write_json
 
 COLOR_PATTERN = re.compile(
@@ -959,6 +960,54 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
     logo_colors = _logo_palette(logo_assets)
     colors, color_evidence = _choose_colors(css)
     colors = _refine_rendered_colors(colors, rendered, logo_colors)
+    reference_pdf_path = None
+    reference_quality_path = None
+    reference_evidence: dict[str, Any] = {
+        "status": "unavailable",
+        "usable_for_color_validation": False,
+        "reason": "browser_reference_pdf_unavailable",
+    }
+    reference_payload = (rendered or {}).get("reference_pdf")
+    if isinstance(reference_payload, bytes) and rendered and isinstance(rendered.get("screenshot"), bytes):
+        reference_pdf_path = brand_dir / "source-webpage.pdf"
+        atomic_write(reference_pdf_path, reference_payload)
+        candidates = [
+            str(value).upper()
+            for value in [
+                *colors.values(),
+                *(item.get("value") for item in color_evidence),
+                *logo_colors,
+            ]
+            if isinstance(value, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", value)
+        ]
+        try:
+            reference_evidence = analyze_reference_pdf(
+                reference_pdf_path,
+                rendered["screenshot"],
+                candidates,
+                logo_colors,
+            )
+            reference_evidence["path"] = str(reference_pdf_path)
+            reference_evidence["capture"] = rendered.get("reference_pdf_metadata") or {}
+        except Exception as exc:
+            reference_evidence = {
+                "status": "failed",
+                "usable_for_color_validation": False,
+                "reason": type(exc).__name__,
+            }
+    elif rendered:
+        reference_evidence.update(rendered.get("reference_pdf_metadata") or {})
+    colors, reference_decisions = reconcile_reference_colors(colors, color_evidence, reference_evidence)
+    reference_by_color = {
+        str(item.get("value", "")).upper(): item
+        for item in reference_evidence.get("candidates", [])
+    }
+    for item in color_evidence:
+        support = reference_by_color.get(str(item.get("value", "")).upper())
+        if support:
+            item["reference_status"] = support["status"]
+            item["reference_pdf_share"] = support["pdf_share_within_rgb_12"]
+            item["reference_screenshot_share"] = support["screenshot_share_within_rgb_12"]
     display_font, body_font, font_evidence = _choose_fonts(css, soup)
     display_font, body_font, display_fallback, body_fallback = _refine_rendered_fonts(
         display_font, body_font, rendered
@@ -975,6 +1024,8 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
     if rendered and rendered.get("screenshot"):
         screenshot_path = brand_dir / "source-screenshot.png"
         atomic_write(screenshot_path, rendered["screenshot"])
+    if reference_pdf_path:
+        reference_quality_path = write_json(brand_dir / "source-webpage.quality.json", reference_evidence)
 
     system = {
         "schema_version": 1,
@@ -1013,16 +1064,27 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
                 "visible_elements_sampled": len(rendered.get("elements", [])) if rendered else 0,
                 "overlays_excluded": visual_language["overlay_count"],
                 "overlays_dismissed": (rendered.get("overlay_actions") or {}) if rendered else {},
+                "source_webpage_pdf": bool(reference_pdf_path),
+                "source_webpage_pdf_status": reference_evidence.get("status"),
             },
             "selection": {
                 "colors": {
                     role: {
                         "value": value,
-                        "confidence": 0.88 if rendered else 0.58,
-                        "provenance": "browser-rendered non-overlay evidence" if rendered else "bounded HTML/CSS evidence",
+                        "confidence": (
+                            0.93 if reference_by_color.get(value, {}).get("status") == "supported"
+                            else 0.76 if rendered else 0.58
+                        ),
+                        "provenance": (
+                            "browser screenshot and screen-media PDF evidence"
+                            if reference_by_color.get(value, {}).get("status") == "supported"
+                            else "browser-rendered non-overlay evidence" if rendered else "bounded HTML/CSS evidence"
+                        ),
+                        "reference_status": reference_by_color.get(value, {}).get("status", "unverified"),
                     }
                     for role, value in colors.items()
                 },
+                "reference_color_decisions": reference_decisions,
                 "logo": {
                     "asset_id": logo_assets[0]["id"] if logo_assets else None,
                     "confidence": logo_assets[0].get("confidence", 0.62) if logo_assets else 0,
@@ -1040,6 +1102,7 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
                 "Observed web fonts are classified for portable PDF fallback but are not embedded automatically",
                 "semantic token roles are deterministic candidates and should be reviewed before high-stakes publication",
             ],
+            "source_webpage_pdf": reference_evidence,
         },
     }
     system["brand_components"] = build_brand_components(system)
@@ -1059,4 +1122,6 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
         "brand_id": brand_id,
         "evidence": system["evidence"]["counts"],
         "source_screenshot": str(screenshot_path) if screenshot_path else None,
+        "source_webpage_pdf": str(reference_pdf_path) if reference_pdf_path else None,
+        "source_webpage_quality": str(reference_quality_path) if reference_quality_path else None,
     }

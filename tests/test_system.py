@@ -215,6 +215,33 @@ def test_create_design_system_can_render_bundled_first_example(monkeypatch: pyte
     assert captured["content"].exists()
 
 
+def test_create_design_system_automatically_renders_default_first_example(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    system_path = tmp_path / "design-system.json"
+    monkeypatch.setattr(
+        cli_module,
+        "extract_brand",
+        lambda url, workspace, name: {
+            "status": "succeeded", "design_system": str(system_path), "brand_id": "sample-brand",
+        },
+    )
+    captured: dict[str, Path] = {}
+
+    def fake_create_pdf(system: Path, content: Path, prompt: str, output: Path, planner: object) -> dict[str, str]:
+        captured.update(system=system, content=content, output=output)
+        return {"status": "succeeded", "pdf": str(output)}
+
+    monkeypatch.setattr(cli_module, "create_pdf", fake_create_pdf)
+    status = cli_module.main([
+        "create", "design-system", "--url", "https://example.com", "--workspace", str(tmp_path),
+    ])
+    assert status == 0
+    assert captured["system"] == system_path
+    assert captured["output"] == tmp_path / "examples" / "sample-brand-kolo-create.pdf"
+    assert captured["content"].name == "kolo-create-explainer.md"
+
+
 def test_composition_uses_brand_and_content_signals() -> None:
     content = "# Launch\n\n## How it works\n\n- Observe\n- Interpret\n- Save"
     blocks = source_blocks(content)

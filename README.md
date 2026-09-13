@@ -15,8 +15,7 @@ uv sync --frozen
 uv run kolo-design create design-system \
   --url "https://kolo.ai" \
   --name "Kolo" \
-  --workspace "./data" \
-  --example-output "./output/kolo-create-example.pdf"
+  --workspace "./data"
 
 uv run kolo-design pdf create \
   --system "./data/brands/kolo/latest.json" \
@@ -31,7 +30,7 @@ uv run kolo-design pdf compare \
   --output-dir "./output/kolo-create-comparison"
 ```
 
-Website extraction prefers Chromium-rendered computed styles, dismisses common consent overlays, captures a clean source screenshot, and falls back to bounded static HTML/CSS extraction. The browser path can recover sites that reject the lightweight HTTP client while still rejecting error pages. Palette scoring distinguishes page, surface, text, primary accent, secondary accent, and saturated dark brand-support roles; derives transparent-root canvases from dominant painted regions; rejects browser-default and unpainted stylesheet colors; and excludes detected consent or modal overlays. Logo discovery prefers the visible header wordmark—including text-rendered brand links—over social-preview artwork, calls to action are ranked by semantic purpose rather than frequency alone, and large visible hero assets are saved for reuse. Major selections retain confidence and provenance. It rejects private-network targets and validates every HTTP redirect.
+Website extraction prefers Chromium-rendered computed styles, dismisses common consent overlays, captures a clean source screenshot and screen-media source-webpage PDF, and falls back to bounded static HTML/CSS extraction. The source PDF uses backgrounds, bounded lazy-content loading, and a frozen visual state. A low-resolution raster sanity check grades the export and tests whether proposed semantic colors actually appear in either rendered artifact. Unsupported secondary accents collapse to the primary accent, while unsupported dark roles can be replaced only by a visibly supported dark candidate. The browser path can recover sites that reject the lightweight HTTP client while still rejecting error pages. Palette scoring distinguishes page, surface, text, primary accent, secondary accent, and dark brand-support roles; derives transparent-root canvases from dominant painted regions; rejects browser-default and unpainted stylesheet colors; and excludes detected consent or modal overlays. Logo discovery prefers the visible header wordmark—including text-rendered brand links—over social-preview artwork, calls to action are ranked by semantic purpose rather than frequency alone, and large visible hero assets are saved for reuse. Major selections retain confidence and provenance. It rejects private-network targets and validates every HTTP redirect.
 
 The resulting design system includes component variants for heading hierarchy, buttons, cards, navigation, and section surfaces, plus captured hero imagery, imagery proportions, borders, radii, shadows, padding, and alignment. It also records portable font categories and visual-language signals including media coverage, viewport density, dominant alignment, overlay count, and an observed presentation mode—including product-led sites. Browser-native evidence preserves bounded CSS custom properties, font-face declarations, breakpoints, grid/flex primitives, and background treatments alongside the normalized cross-renderer tokens. A separate `brand-components.json` turns that evidence into portable recipes for section markers, feature bands, grids, media treatments, and closing signatures. Secondary brand colors must clear an evidence threshold before they enter multi-color components; monochrome brands receive an open, rule-led grid instead of generic filled cards.
 
@@ -39,7 +38,9 @@ PDF creation compiles source Markdown into stable content-block IDs and an inspe
 
 The comparison command evaluates two renderers without paying for two planning calls. It produces the current ReportLab PDF and a candidate HTML/CSS document and PDF from one validated plan, runs DOM overflow and grid-alignment checks, and generates side-by-side page previews plus a comparison manifest. ReportLab remains the default while repeated review determines which browser patterns deserve promotion.
 
-`--example-output` keeps the two stages separate but runs them back-to-back: after extraction it renders the bundled Kolo Create explainer with the new system. This provides an immediate, comparable first artifact for every brand without a model call.
+Every successful design-system command automatically renders the bundled Kolo Create explainer to `<workspace>/examples/<brand-id>-kolo-create.pdf`. `--example-output` optionally overrides that destination; it does not enable the behavior. The two stages remain separate internally, but this automatic first artifact makes every extraction immediately comparable without a model call.
+
+When the skill runs inside Kolo, its delivery contract attaches that validated example PDF to the current chat with Kolo's `message` tool and opens the same local file in the visible Kolo desktop browser. User-requested PDFs follow the same contract. The command-line program itself remains UI-independent: it returns the artifact path, while the skill performs chat and browser delivery so the renderer stays reusable in other environments.
 
 Inline bold, links, and code spans are converted for ReportLab. Emoji unsupported by the PDF fonts are removed automatically and counted in the quality report, so the agent does not need to rewrite the source into a separate print copy.
 

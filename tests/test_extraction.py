@@ -4,8 +4,9 @@ import pytest
 from bs4 import BeautifulSoup
 from PIL import Image
 from playwright.sync_api import sync_playwright
+from pypdf import PdfReader
 
-from kolo_design.browser_extract import _browser_executable, _dismiss_overlays
+from kolo_design.browser_extract import _browser_executable, _dismiss_overlays, _freeze_motion, _reference_pdf
 
 from kolo_design.extractor import (
     _browser_native_evidence,
@@ -20,6 +21,7 @@ from kolo_design.extractor import (
     _spacing,
     _visual_language,
 )
+from kolo_design.reference_evidence import analyze_reference_pdf, reconcile_reference_colors
 
 
 def test_browser_native_evidence_preserves_css_for_future_renderers() -> None:
@@ -68,6 +70,108 @@ def test_consent_cleanup_removes_orphaned_fullscreen_backdrop() -> None:
         assert result == {"clicked": "Accept All", "hidden": 1, "backdrops_hidden": 1}
         assert page.locator(".privacy-backdrop").evaluate("el => getComputedStyle(el).display") == "none"
         browser.close()
+
+
+def test_reference_pdf_validates_rendered_colors_and_rejects_unpainted_css(tmp_path) -> None:
+    executable = _browser_executable()
+    if not executable:
+        pytest.skip("Chromium is not installed")
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1100})
+        page.set_content(
+            """
+            <style>
+              html,body { margin:0; background:#f9f8f5; color:#111827; }
+              main { min-height:1800px; padding:80px; }
+              button { background:#007aff; color:white; padding:18px 30px; }
+              .unused { color:#16a34a; }
+            </style>
+            <main><h1>Visible brand page</h1><button>Book a Demo</button></main>
+            """
+        )
+        _freeze_motion(page)
+        screenshot = page.screenshot(type="png")
+        payload, metadata = _reference_pdf(page)
+        browser.close()
+    assert payload is not None
+    assert metadata["status"] == "captured"
+    pdf_path = tmp_path / "source-webpage.pdf"
+    pdf_path.write_bytes(payload)
+    assert len(PdfReader(str(pdf_path)).pages) >= 1
+    report = analyze_reference_pdf(
+        pdf_path,
+        screenshot,
+        ["#F9F8F5", "#111827", "#007AFF", "#16A34A"],
+        [],
+    )
+    support = {item["value"]: item["status"] for item in report["candidates"]}
+    assert report["usable_for_color_validation"] is True
+    assert support["#007AFF"] == "supported"
+    assert support["#16A34A"] == "contradicted"
+    colors, decisions = reconcile_reference_colors(
+        {
+            "background": "#F9F8F5", "surface": "#FFFFFF", "text": "#111827",
+            "accent": "#007AFF", "accent_secondary": "#16A34A",
+        },
+        [
+            {"value": "#007AFF", "occurrences": 20},
+            {"value": "#16A34A", "occurrences": 40},
+        ],
+        report,
+    )
+    assert colors["accent_secondary"] == "#007AFF"
+    assert next(item for item in decisions if item["role"] == "accent_secondary")["status"] == "contradicted"
+
+
+def test_reference_reconciliation_replaces_unsupported_mailchimp_teal_with_supported_dark() -> None:
+    reference = {
+        "usable_for_color_validation": True,
+        "candidates": [
+            {"value": "#FFE01B", "status": "supported", "pdf_share_within_rgb_12": 0.003, "screenshot_share_within_rgb_12": 0.01, "logo_supported": True},
+            {"value": "#004E56", "status": "contradicted", "pdf_share_within_rgb_12": 0.0, "screenshot_share_within_rgb_12": 0.0, "logo_supported": False},
+            {"value": "#231E15", "status": "supported", "pdf_share_within_rgb_12": 0.12, "screenshot_share_within_rgb_12": 0.04, "logo_supported": False},
+        ],
+    }
+    colors, _ = reconcile_reference_colors(
+        {
+            "background": "#FFFFFF", "surface": "#F5F5F5", "text": "#000000",
+            "accent": "#FFE01B", "accent_secondary": "#004E56", "brand_dark": "#004E56",
+        },
+        [
+            {"value": "#FFE01B", "occurrences": 120},
+            {"value": "#004E56", "occurrences": 83},
+            {"value": "#231E15", "occurrences": 752},
+        ],
+        reference,
+    )
+    assert colors["accent_secondary"] == "#FFE01B"
+    assert colors["brand_dark"] == "#231E15"
+
+
+def test_reference_reconciliation_preserves_supported_redbull_navy() -> None:
+    reference = {
+        "usable_for_color_validation": True,
+        "candidates": [
+            {"value": "#D2003C", "status": "supported", "pdf_share_within_rgb_12": 0.0001, "screenshot_share_within_rgb_12": 0.0003, "logo_supported": True},
+            {"value": "#FFCC00", "status": "supported", "pdf_share_within_rgb_12": 0.0001, "screenshot_share_within_rgb_12": 0.0001, "logo_supported": True},
+            {"value": "#00162B", "status": "supported", "pdf_share_within_rgb_12": 0.18, "screenshot_share_within_rgb_12": 0.01, "logo_supported": False},
+        ],
+    }
+    colors, _ = reconcile_reference_colors(
+        {
+            "background": "#FFFFFF", "surface": "#F8F8F8", "text": "#000000",
+            "accent": "#D2003C", "accent_secondary": "#FFCC00", "brand_dark": "#00162B",
+        },
+        [
+            {"value": "#D2003C", "occurrences": 61},
+            {"value": "#FFCC00", "occurrences": 20},
+            {"value": "#00162B", "occurrences": 110},
+        ],
+        reference,
+    )
+    assert colors["accent_secondary"] == "#FFCC00"
+    assert colors["brand_dark"] == "#00162B"
 
 
 def test_style_evidence_compiles_to_semantic_tokens() -> None:
