@@ -61,6 +61,15 @@ def _legible_foreground(background: str, *candidates: Any) -> str:
     return max(dict.fromkeys(valid), key=lambda value: _contrast_ratio(background, value))
 
 
+def _preferred_foreground(background: str, preferred: Any, *fallbacks: Any) -> str:
+    """Keep an observed foreground when it is readable; otherwise repair contrast."""
+    if isinstance(preferred, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", preferred):
+        preferred = preferred.upper()
+        if _contrast_ratio(background, preferred) >= 3:
+            return preferred
+    return _legible_foreground(background, *fallbacks)
+
+
 def _brand_dark(system: dict[str, Any], palette: dict[str, str]) -> str:
     explicit = palette.get("brand_dark")
     if isinstance(explicit, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", explicit):
@@ -238,7 +247,9 @@ def create_pdf(
     card_background = _reportlab_color(card_background_hex)
     card_border = _recipe_color(card_recipe.get("border_color"), palette["surface"])
     button_background_hex = primary_button.get("background") if isinstance(primary_button.get("background"), str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", primary_button["background"]) else palette["accent"]
-    button_foreground_hex = _legible_foreground(button_background_hex, primary_button.get("foreground"), palette["text"])
+    button_foreground_hex = _preferred_foreground(
+        button_background_hex, primary_button.get("foreground"), palette["text"]
+    )
     eyebrow_hex = _eyebrow_color(palette)
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
@@ -281,10 +292,6 @@ def create_pdf(
             canvas.rect(width * 0.64, height - 12, width * 0.36, 12, stroke=0, fill=1)
         elif family == "numbered_process":
             canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
-            if doc.page > 1:
-                canvas.setStrokeColor(surface)
-                canvas.setLineWidth(2)
-                canvas.line(0.95 * inch, 0.75 * inch, 0.95 * inch, height - 0.85 * inch)
         else:
             canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
         if doc.page == 1:
