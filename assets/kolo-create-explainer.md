@@ -25,7 +25,7 @@ Add your words and tell Kolo what you are making. Kolo Create finds a compositio
 - **Components:** Headings, buttons, cards, sections, borders, shape, and spacing.
 - **Composition:** The balance, density, alignment, imagery, and rhythm that make the brand recognizable.
 
-## More taste, less busywork
+## Your taste, less busywork
 
 Kolo Create handles the repeatable design decisions with fast, dependable rules. When a project needs more interpretation, a workspace language model can help shape the story without taking over the source or the final quality checks.
 
