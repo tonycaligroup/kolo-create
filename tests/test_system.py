@@ -8,7 +8,7 @@ from pypdf import PdfReader
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
 from kolo_design.network import FetchError, assert_public_url
-from kolo_design.pdf_designer import create_pdf
+from kolo_design.pdf_designer import _legible_foreground, create_pdf
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
 from kolo_design.util import read_json
 
@@ -17,6 +17,10 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 def test_fixture_system_is_valid() -> None:
     validate_design_system(read_json(FIXTURES / "design-system.json"))
+
+
+def test_component_foreground_falls_back_to_readable_contrast() -> None:
+    assert _legible_foreground("#000000", "#1264A3", "#000000") == "#FFFFFF"
 
 
 def test_create_design_system_command_contract() -> None:

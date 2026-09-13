@@ -85,7 +85,10 @@ def _contrast(left: str, right: str) -> float:
 def _choose_colors(css: str) -> tuple[dict[str, str], list[dict[str, Any]]]:
     variables: dict[str, str] = {}
     for name, raw in CSS_VAR_PATTERN.findall(css):
-        normalized = _color_to_hex(raw.split()[0].rstrip(","))
+        parts = raw.split()
+        if not parts:
+            continue
+        normalized = _color_to_hex(parts[0].rstrip(","))
         if normalized:
             variables[name.lower()] = normalized
     observed = [color for raw in COLOR_PATTERN.findall(css) if (color := _color_to_hex(raw))]
@@ -127,16 +130,18 @@ def _refine_rendered_colors(colors: dict[str, str], rendered: dict[str, Any] | N
         return colors
     result = dict(colors)
     roots = rendered.get("root_styles") or {}
-    root_backgrounds = [
-        _color_to_hex((roots.get(node) or {}).get("background", ""))
-        for node in ("body", "html")
-    ]
-    background = next((value for value in root_backgrounds if value), result["background"])
-    root_foregrounds = [
-        _color_to_hex((roots.get(node) or {}).get("color", ""))
-        for node in ("body", "html")
-    ]
-    text = next((value for value in root_foregrounds if value and _contrast(background, value) >= 3), result["text"])
+    background, text = result["background"], result["text"]
+    root_accepted = False
+    for node in ("body", "html"):
+        root = roots.get(node) or {}
+        candidate_background = _color_to_hex(root.get("background", ""))
+        candidate_text = _color_to_hex(root.get("color", ""))
+        # Consent overlays often dim the root without changing its inherited text.
+        # Accept a rendered root palette only when it remains a readable pair.
+        if candidate_background and candidate_text and _contrast(candidate_background, candidate_text) >= 3:
+            background, text = candidate_background, candidate_text
+            root_accepted = True
+            break
 
     elements = rendered.get("elements") or []
     container_backgrounds: list[str] = []
@@ -154,6 +159,8 @@ def _refine_rendered_colors(colors: dict[str, str], rendered: dict[str, Any] | N
     surface = Counter(container_backgrounds).most_common(1)[0][0] if container_backgrounds else result["surface"]
     if _contrast(surface, text) < 2.5:
         surface = result["surface"]
+    if not root_accepted and _contrast(surface, text) >= 3:
+        background = surface
 
     excluded = {background, surface, text}
 
@@ -298,10 +305,12 @@ def _component_inventory(elements: list[dict[str, Any]], colors: dict[str, str])
 
 def _logo_candidates(soup: BeautifulSoup, base_url: str) -> list[tuple[int, str, str]]:
     candidates: list[tuple[int, str, str]] = []
+    host_stem = (urlparse(base_url).hostname or "").lower().removeprefix("www.").split(".")[0]
+    brand_hint = re.sub(r"(?:app|ai|inc)$", "", host_stem) or host_stem
     selectors = [
-        ('meta[property="og:image"]', "content", 55, "og-image"),
-        ('link[rel~="apple-touch-icon"]', "href", 80, "apple-touch-icon"),
-        ('link[rel~="icon"]', "href", 45, "icon"),
+        ('meta[property="og:image"]', "content", 5, "og-image"),
+        ('link[rel~="apple-touch-icon"]', "href", 120, "apple-touch-icon"),
+        ('link[rel~="icon"]', "href", 90, "icon"),
         ('img[src]', "src", 10, "image"),
     ]
     for selector, attribute, score, source in selectors:
@@ -309,9 +318,14 @@ def _logo_candidates(soup: BeautifulSoup, base_url: str) -> list[tuple[int, str,
             raw = element.get(attribute)
             if not raw or str(raw).startswith("data:"):
                 continue
-            hint = " ".join(str(element.get(key, "")) for key in ("class", "id", "alt", "aria-label")).lower()
-            adjusted = score + (70 if "logo" in hint or "brand" in hint else 0)
-            candidates.append((adjusted, urljoin(base_url, str(raw)), source))
+            resolved = urljoin(base_url, str(raw))
+            hint = " ".join(str(element.get(key, "")) for key in ("alt", "aria-label")).lower()
+            path_hint = urlparse(resolved).path.lower()
+            logo_match = "logo" in hint or "brand" in hint or "logo" in path_hint or "brand" in path_hint
+            brand_match = bool(brand_hint and (brand_hint in hint or brand_hint in path_hint))
+            semantic_score = 110 if source == "og-image" and logo_match else 100 if logo_match and brand_match else 80 if brand_match else 60 if logo_match else score
+            adjusted = max(score, semantic_score)
+            candidates.append((adjusted, resolved, source))
     return sorted(set(candidates), reverse=True)
 
 

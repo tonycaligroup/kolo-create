@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from kolo_design.extractor import _choose_colors, _choose_fonts, _color_to_hex, _component_inventory, _refine_rendered_colors, _spacing
+from kolo_design.extractor import _choose_colors, _choose_fonts, _color_to_hex, _component_inventory, _logo_candidates, _refine_rendered_colors, _spacing
 
 
 def test_style_evidence_compiles_to_semantic_tokens() -> None:
@@ -19,6 +19,11 @@ def test_style_evidence_compiles_to_semantic_tokens() -> None:
     assert display == body == "Inter"
     assert fonts
     assert base in scale
+
+
+def test_empty_css_variable_does_not_break_palette_extraction() -> None:
+    colors, _ = _choose_colors(":root { --empty: ; --accent: #635bff; } body { color: #101010; background: #ffffff; }")
+    assert colors["accent"] == "#635BFF"
 
 
 def test_transparent_computed_colors_are_not_treated_as_black() -> None:
@@ -41,6 +46,39 @@ def test_rendered_dark_brand_overrides_noisy_static_palette() -> None:
         {"background": "#FFFFFF", "surface": "#F5F5F5", "text": "#000000", "accent": "#090909"}, rendered
     )
     assert colors == {"background": "#090909", "surface": "#12100F", "text": "#FFFAF3", "accent": "#FF8557"}
+
+
+def test_low_contrast_cookie_overlay_does_not_replace_brand_background() -> None:
+    rendered = {
+        "root_styles": {"body": {"background": "#525252", "color": "#333333"}},
+        "elements": [
+            {"tag": "div", "rect": {"width": 900, "height": 500}, "style": {"background": "#FFFFFF", "color": "#333333", "border_color": "#FFFFFF"}},
+            {"tag": "strong", "rect": {"width": 300, "height": 60}, "style": {"background": "transparent", "color": "#FE7800", "border_color": "#FE7800"}},
+        ],
+    }
+    colors = _refine_rendered_colors(
+        {"background": "#FFFFFF", "surface": "#FFFFFF", "text": "#333333", "accent": "#FE7800"}, rendered
+    )
+    assert colors["background"] == "#FFFFFF"
+    assert colors["text"] == "#333333"
+
+
+def test_site_icon_outranks_unrelated_customer_logo() -> None:
+    soup = BeautifulSoup(
+        '<link rel="icon" href="/favicon.png"><img alt="Customer logo" src="/customers/acme.png">',
+        "html.parser",
+    )
+    candidates = _logo_candidates(soup, "https://stripe.com")
+    assert candidates[0][1] == "https://stripe.com/favicon.png"
+
+
+def test_structured_brand_logo_outranks_product_logo() -> None:
+    soup = BeautifulSoup(
+        '<meta property="og:image" content="/structured/open_graph_logo.png"><img alt="Product logo" src="/images/logos/apple-watch.png">',
+        "html.parser",
+    )
+    candidates = _logo_candidates(soup, "https://apple.com")
+    assert candidates[0][1] == "https://apple.com/structured/open_graph_logo.png"
 
 
 def test_component_inventory_separates_primary_and_secondary_buttons() -> None:

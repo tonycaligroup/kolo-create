@@ -42,6 +42,24 @@ def _recipe_color(value: Any, fallback: str) -> colors.Color:
     return colors.HexColor(value if isinstance(value, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", value) else fallback)
 
 
+def _contrast_ratio(left: str, right: str) -> float:
+    def luminance(value: str) -> float:
+        channels = []
+        for index in (1, 3, 5):
+            channel = int(value[index:index + 2], 16) / 255
+            channels.append(channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+    high, low = sorted((luminance(left), luminance(right)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def _legible_foreground(background: str, *candidates: Any) -> str:
+    valid = [value.upper() for value in candidates if isinstance(value, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", value)]
+    valid.extend(["#FFFFFF", "#111111"])
+    return max(dict.fromkeys(valid), key=lambda value: _contrast_ratio(background, value))
+
+
 def _font_roles(system: dict[str, Any]) -> tuple[str, str, str]:
     display = system["tokens"]["typography"]["display_family"].lower()
     serif_markers = ("serif", "times", "georgia", "garamond", "baskerville")
@@ -178,7 +196,9 @@ def create_pdf(
     h3_size = _number(heading3_recipe.get("font_size"), 13, 11, 16)
     card_radius = _number(card_recipe.get("radius"), system["tokens"].get("shape", {}).get("radius", 8), 0, 18)
     card_border_width = _number(card_recipe.get("border_width"), 0.75, 0, 2)
-    card_background = _recipe_color(card_recipe.get("background"), palette["surface"])
+    card_background_hex = card_recipe.get("background") if isinstance(card_recipe.get("background"), str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", card_recipe["background"]) else palette["surface"]
+    card_foreground_hex = _legible_foreground(card_background_hex, card_recipe.get("foreground"), palette["text"])
+    card_background = _reportlab_color(card_background_hex)
     card_border = _recipe_color(card_recipe.get("border_color"), palette["surface"])
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
@@ -200,7 +220,7 @@ def create_pdf(
         "h3": ParagraphStyle("h3", fontName=label_font, fontSize=h3_size, leading=h3_size * 1.3, textColor=accent, spaceBefore=base * 2, spaceAfter=base, alignment=_alignment(heading3_recipe.get("text_align"))),
         "body": ParagraphStyle("body", fontName=body_font, fontSize=10.5, leading=16, textColor=text, spaceAfter=base * 1.6, alignment=TA_LEFT),
         "bullet": ParagraphStyle("bullet", parent=None, fontName=body_font, fontSize=10.5, leading=16, textColor=text, leftIndent=16, firstLineIndent=-10, bulletIndent=0, spaceAfter=base),
-        "card": ParagraphStyle("card", fontName=body_font, fontSize=_number(card_recipe.get("font_size"), 10.5, 9, 12), leading=15, textColor=_recipe_color(card_recipe.get("foreground"), palette["text"]), spaceAfter=0),
+        "card": ParagraphStyle("card", fontName=body_font, fontSize=_number(card_recipe.get("font_size"), 10.5, 9, 12), leading=15, textColor=_reportlab_color(card_foreground_hex), spaceAfter=0),
         "callout": ParagraphStyle("callout", fontName=body_font, fontSize=12, leading=18, textColor=text, spaceAfter=0),
         "action": ParagraphStyle("action", fontName=label_font, fontSize=_number(primary_button.get("font_size"), 10, 9, 12), leading=14, textColor=_recipe_color(primary_button.get("foreground"), "#FFFFFF"), alignment=TA_CENTER, spaceAfter=0),
     }
@@ -356,6 +376,8 @@ def create_pdf(
             "typography": {"h1_points": round(h1_size, 2), "h2_points": round(h2_size, 2), "h3_points": round(h3_size, 2)},
             "cards": {
                 "background": card_recipe.get("background") or palette["surface"],
+                "foreground": card_foreground_hex,
+                "text_contrast": round(_contrast_ratio(card_background_hex, card_foreground_hex), 2),
                 "border_color": card_recipe.get("border_color") or palette["surface"],
                 "border_width": card_border_width,
                 "radius": card_radius,
