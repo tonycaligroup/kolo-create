@@ -14,6 +14,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4, LETTER, landscape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
+from reportlab.pdfbase import pdfmetrics
 from reportlab.platypus import CondPageBreak, Flowable, HRFlowable, Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .composition import select_composition, validate_composition
@@ -139,6 +140,11 @@ def _alignment(value: str | None) -> int:
     return {"center": TA_CENTER, "right": TA_RIGHT, "end": TA_RIGHT}.get(str(value).lower(), TA_LEFT)
 
 
+def _bounded_radius(radius: float, width: float, height: float) -> float:
+    """Keep rounded rectangles inside ReportLab's stable geometric range."""
+    return max(0.0, min(radius, max(0.0, width / 2 - 0.5), max(0.0, height / 2 - 0.5)))
+
+
 class BrandedBox(Flowable):
     """A splittable-safe branded card, callout, or action built from one paragraph."""
 
@@ -177,18 +183,20 @@ class BrandedBox(Flowable):
 
     def draw(self) -> None:
         canvas = self.canv
+        radius = _bounded_radius(self.radius, self.width, self.height)
         if self.shadow:
             canvas.setFillColor(colors.Color(0, 0, 0, alpha=0.07))
-            canvas.roundRect(2, -2, self.width - 2, self.height, self.radius, stroke=0, fill=1)
+            shadow_radius = _bounded_radius(radius, self.width - 2, self.height)
+            canvas.roundRect(2, -2, self.width - 2, self.height, shadow_radius, stroke=0, fill=1)
         canvas.setFillColor(self.background)
         canvas.setStrokeColor(self.border)
         canvas.setLineWidth(self.border_width)
-        canvas.roundRect(0, 0, self.width, self.height, self.radius, stroke=int(self.border_width > 0), fill=1)
+        canvas.roundRect(0, 0, self.width, self.height, radius, stroke=int(self.border_width > 0), fill=1)
         if self.accent is not None:
             canvas.setFillColor(self.accent)
-            canvas.roundRect(0, 0, 5, self.height, min(3, self.radius), stroke=0, fill=1)
+            canvas.roundRect(0, 0, 5, self.height, min(3, radius), stroke=0, fill=1)
         paragraph_width, paragraph_height = self._paragraph_size
-        self.paragraph.drawOn(canvas, self.padding, self.height - self.padding - paragraph_height)
+        self.paragraph.drawOn(canvas, self.padding, (self.height - paragraph_height) / 2)
 
 
 def create_pdf(
@@ -250,6 +258,9 @@ def create_pdf(
     button_foreground_hex = _preferred_foreground(
         button_background_hex, primary_button.get("foreground"), palette["text"]
     )
+    button_height = _number(primary_button.get("typical_height"), 38, 32, 52)
+    button_radius = _number(primary_button.get("radius"), 16, 0, button_height / 2)
+    button_font_size = _number(primary_button.get("font_size"), 10, 9, 16)
     eyebrow_hex = _eyebrow_color(palette)
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
@@ -262,6 +273,7 @@ def create_pdf(
         topMargin=0.78 * inch, bottomMargin=0.7 * inch,
         title=plan["title"], author=f"Kolo Design Studio · {system['name']}",
     )
+    button_width = _number(primary_button.get("typical_width"), 170, 120, min(250, document.width))
     styles = {
         "eyebrow": ParagraphStyle("eyebrow", fontName=label_font, fontSize=8.5, leading=11, textColor=_reportlab_color(eyebrow_hex), spaceAfter=base * 2, tracking=1.1),
         "cover": ParagraphStyle("cover", fontName=display_font, fontSize=h1_size, leading=h1_size * 1.08, textColor=text, spaceAfter=base * 3, alignment=_alignment(heading1_recipe.get("text_align"))),
@@ -276,8 +288,13 @@ def create_pdf(
         "module": ParagraphStyle("module", fontName=body_font, fontSize=10, leading=14, textColor=text, spaceAfter=0),
         "number": ParagraphStyle("number", fontName=display_font, fontSize=18, leading=20, textColor=accent, alignment=TA_CENTER, spaceAfter=0),
         "callout": ParagraphStyle("callout", fontName=body_font, fontSize=12, leading=18, textColor=text, spaceAfter=0),
-        "action": ParagraphStyle("action", fontName=label_font, fontSize=_number(primary_button.get("font_size"), 10, 9, 12), leading=14, textColor=_reportlab_color(button_foreground_hex), alignment=TA_CENTER, spaceAfter=0),
+        "action": ParagraphStyle("action", fontName=label_font, fontSize=button_font_size, leading=max(14, button_font_size * 1.15), textColor=_reportlab_color(button_foreground_hex), alignment=TA_CENTER, spaceAfter=0),
     }
+
+    def fitted_button_width(markup: str, maximum: float) -> float:
+        plain_label = html.unescape(re.sub(r"<[^>]+>", "", markup))
+        label_width = pdfmetrics.stringWidth(plain_label, label_font, button_font_size)
+        return min(max(button_width, label_width + 28), maximum)
 
     def decorate(canvas: Any, doc: Any) -> None:
         canvas.saveState()
@@ -397,15 +414,15 @@ def create_pdf(
             ])
             component_usage["callouts"] += 1
         elif kind == "action":
-            button_width = _number(primary_button.get("typical_width"), 170, 120, min(250, document.width))
+            action_width = fitted_button_width(safe, min(250, document.width))
             action = BrandedBox(
                 safe, styles["action"], background=_reportlab_color(button_background_hex),
                 border=_recipe_color(primary_button.get("border_color"), palette["accent"]),
                 border_width=_number(primary_button.get("border_width"), 0, 0, 2),
-                radius=_number(primary_button.get("radius"), 16, 0, 20), padding=10, min_height=36,
+                radius=button_radius, padding=10, min_height=button_height,
                 shadow=bool(primary_button.get("shadow") and primary_button.get("shadow") != "none"),
             )
-            story.extend([Table([[action]], colWidths=[button_width], style=TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)])), Spacer(1, base * 2)])
+            story.extend([Table([[action]], colWidths=[action_width], style=TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)])), Spacer(1, base * 2)])
             component_usage["actions"] += 1
         else:
             story.append(Paragraph(safe, styles["lead"] if lead else styles["body"]))
@@ -518,6 +535,7 @@ def create_pdf(
         heading_flowable: Any = ""
         body_values: list[str] = []
         action_flowable: Any = ""
+        close_button_width = min(button_width, document.width * 0.44)
         for block in section_blocks:
             safe = _inline_markdown(block["text"])
             if block["kind"].startswith("heading"):
@@ -531,9 +549,10 @@ def create_pdf(
                 action = BrandedBox(
                     safe, close_action_style, background=_reportlab_color(button_background_hex),
                     border=_reportlab_color(button_background_hex), border_width=0,
-                    radius=_number(primary_button.get("radius"), 16, 0, 20), padding=8, min_height=31,
+                    radius=button_radius, padding=8, min_height=button_height,
                 )
-                action_flowable = Table([[action]], colWidths=[min(190, document.width * 0.34)], hAlign="RIGHT", style=TableStyle([
+                close_button_width = fitted_button_width(safe, document.width * 0.44)
+                action_flowable = Table([[action]], colWidths=[close_button_width], hAlign="RIGHT", style=TableStyle([
                     ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                     ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ]))
@@ -541,11 +560,11 @@ def create_pdf(
             else:
                 body_values.append(safe)
                 component_usage["standard_blocks"] += 1
-        body_width = document.width * 0.64
-        action_width = document.width - body_width
+        close_gap = max(12, base * 3)
+        body_width = document.width - close_button_width - close_gap
         body_and_action = Table(
-            [[Paragraph("<br/><br/>".join(body_values), close_body), action_flowable]],
-            colWidths=[body_width, action_width],
+            [[Paragraph("<br/><br/>".join(body_values), close_body), "", action_flowable]],
+            colWidths=[body_width, close_gap, close_button_width],
             style=TableStyle([
                 ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                 ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
