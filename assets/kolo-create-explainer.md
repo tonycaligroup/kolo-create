@@ -1,38 +1,38 @@
 # Kolo Create
 
-> Turn a public website into a reusable design system, then create polished documents in the same visual language.
+> Show Kolo the look once. From there, every brief, proposal, and big idea can feel like it came from the same creative team.
 
-## From website to reusable system
+## Start with the brand you already have
 
-Kolo Create separates the brand language from a public website. The result is a portable, versioned system that can be inspected and reused without crawling the site again.
+Kolo Create studies a public website to understand what makes the brand feel like itself. It turns that visual language into a reusable system, ready whenever there is something new to make.
 
-- **01. Observe:** Capture rendered color, type, spacing, imagery, surfaces, components, and alignment.
-- **02. Interpret:** Map the evidence into tokens, component recipes, and visual-language signals.
-- **03. Save:** Store an exact system version with its evidence, assets, specimen, and inventory.
+- **01. Notice what makes it yours:** Color, type, spacing, imagery, surfaces, components, and rhythm.
+- **02. Turn the look into a system:** Organize those choices into a clear visual language Kolo can reuse.
+- **03. Keep it ready:** Save the system with its assets and examples, so the next project starts ahead.
 
-## Create with the system
+## Bring the next idea
 
-Give Kolo Create source text and a design direction. It preserves the facts, chooses a composition for the content and brand, renders the document, and verifies the result.
+Add your words and tell Kolo what you are making. Kolo Create finds a composition that fits the idea, applies the saved brand language, and delivers a polished document that is ready to share.
 
-- **Source-owned content:** Stable block IDs prevent silent drops, repeats, or invented copy.
-- **Flexible composition:** Four layout families provide genuinely different structures.
-- **Reusable brand:** PDF creation consumes a saved version without mutating it or recrawling.
+- **Your message stays yours:** The design changes; the meaning does not.
+- **The format follows the idea:** Different stories get different structures, not the same template in new colors.
+- **The brand stays consistent:** Every new piece starts from the visual language you already approved.
 
-## What the first release understands
+## What Kolo carries forward
 
-- **Color:** Background, surface, text, accents, contrast, and observed usage.
-- **Type:** Display and body roles, scale, weight, alignment, and portable fallbacks.
-- **Components:** Headings, buttons, cards, navigation, sections, borders, shape, and spacing.
-- **Visual language:** Media coverage, density, alignment, overlays, and presentation mode.
+- **Color:** The signature palette, supporting colors, contrast, and how each shade is used.
+- **Type:** Display and body roles, scale, weight, alignment, and overall character.
+- **Components:** Headings, buttons, cards, sections, borders, shape, and spacing.
+- **Composition:** The balance, density, alignment, imagery, and rhythm that make the brand recognizable.
 
-## Built to evolve
+## More taste, less busywork
 
-The inexpensive path is deterministic: evidence becomes structured data, rules select a layout family, and code renders and checks the PDF. A workspace-entitled language model is selected only when semantic restructuring is worth the cost. It may arrange trusted blocks; validation and rendering remain code-owned.
+Kolo Create handles the repeatable design decisions with fast, dependable rules. When a project needs more interpretation, a workspace language model can help shape the story without taking over the source or the final quality checks.
 
-Image generation stays separate and uses the workspace's configured provider, so it can evolve without coupling to the core contracts.
+Image generation stays separate and joins the process only when the idea calls for it. That keeps everyday work quick while leaving room for more ambitious creative pieces.
 
-## One skill, two reusable stages
+## Your brand, ready for whatever comes next
 
-Create a design system once, then create many branded artifacts. The same saved language can drive briefs, proposals, reports, one-pagers, and new formats.
+Turn the look into a lasting creative foundation, then put it to work across the things your team needs today and the formats you have not imagined yet.
 
-[Create with Kolo](https://kolo.ai)
+[Make something with Kolo](https://kolo.ai)

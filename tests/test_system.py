@@ -10,7 +10,7 @@ from kolo_design.composition import select_composition, validate_composition
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
 from kolo_design.network import FetchError, assert_public_url
-from kolo_design.pdf_designer import _brand_dark, _legible_foreground, create_pdf
+from kolo_design.pdf_designer import _brand_dark, _eyebrow_color, _legible_foreground, create_pdf
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
 from kolo_design.util import read_json
 
@@ -36,6 +36,17 @@ def test_brand_dark_can_be_recovered_from_saved_color_evidence() -> None:
         "accent": "#FFCC00", "accent_secondary": "#D2003C",
     }
     assert _brand_dark(system, palette) == "#00162B"
+
+
+@pytest.mark.parametrize(
+    ("palette", "expected"),
+    [
+        ({"background": "#FFFFFF", "text": "#000000", "accent": "#FFCC00", "accent_secondary": "#D2003C"}, "#D2003C"),
+        ({"background": "#FFFFFF", "text": "#000000", "accent": "#FFE01B", "accent_secondary": "#004E56"}, "#004E56"),
+    ],
+)
+def test_cover_eyebrow_avoids_low_contrast_signature_yellow(palette: dict[str, str], expected: str) -> None:
+    assert _eyebrow_color(palette) == expected
 
 
 def test_create_design_system_command_contract() -> None:

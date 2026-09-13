@@ -78,6 +78,16 @@ def _brand_dark(system: dict[str, Any], palette: dict[str, str]) -> str:
     return max(candidates, default=(0, palette["text"]), key=lambda item: item[0])[1]
 
 
+def _eyebrow_color(palette: dict[str, str]) -> str:
+    return next(
+        (
+            candidate for candidate in (palette["accent"], palette.get("accent_secondary"), palette["text"])
+            if isinstance(candidate, str) and _contrast_ratio(palette["background"], candidate) >= 3
+        ),
+        palette["text"],
+    )
+
+
 def _font_roles(system: dict[str, Any]) -> tuple[str, str, str]:
     typography = system["tokens"]["typography"]
     display = typography["display_family"].lower()
@@ -229,6 +239,7 @@ def create_pdf(
     card_border = _recipe_color(card_recipe.get("border_color"), palette["surface"])
     button_background_hex = primary_button.get("background") if isinstance(primary_button.get("background"), str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", primary_button["background"]) else palette["accent"]
     button_foreground_hex = _legible_foreground(button_background_hex, primary_button.get("foreground"), palette["text"])
+    eyebrow_hex = _eyebrow_color(palette)
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
     section_background = _recipe_color(section_recipe.get("background"), palette["surface"])
@@ -241,7 +252,7 @@ def create_pdf(
         title=plan["title"], author=f"Kolo Design Studio · {system['name']}",
     )
     styles = {
-        "eyebrow": ParagraphStyle("eyebrow", fontName=label_font, fontSize=8.5, leading=11, textColor=accent, spaceAfter=base * 2, tracking=1.1),
+        "eyebrow": ParagraphStyle("eyebrow", fontName=label_font, fontSize=8.5, leading=11, textColor=_reportlab_color(eyebrow_hex), spaceAfter=base * 2, tracking=1.1),
         "cover": ParagraphStyle("cover", fontName=display_font, fontSize=h1_size, leading=h1_size * 1.08, textColor=text, spaceAfter=base * 3, alignment=_alignment(heading1_recipe.get("text_align"))),
         "subtitle": ParagraphStyle("subtitle", fontName=body_font, fontSize=13, leading=19, textColor=text, spaceAfter=base * 3),
         "h1": ParagraphStyle("h1", fontName=display_font, fontSize=min(30, h1_size * 0.7), leading=min(34, h1_size * 0.78), textColor=text, spaceBefore=base * 3, spaceAfter=base * 2, alignment=_alignment(heading1_recipe.get("text_align"))),
@@ -304,7 +315,7 @@ def create_pdf(
         canvas.restoreState()
 
     story: list[Any] = [Spacer(1, height * (0.09 if family == "modular_announcement" else 0.13))]
-    story.append(Paragraph(html.escape(system["name"].upper()), styles["eyebrow"]))
+    story.append(Paragraph(html.escape(f"{system['name']} DESIGN LANGUAGE".upper()), styles["eyebrow"]))
     cover_title = Paragraph(_inline_markdown(plan["title"]), styles["cover"])
     cover_subtitle = Paragraph(_inline_markdown(plan["subtitle"]), styles["subtitle"])
     if family == "modular_announcement":
@@ -514,7 +525,7 @@ def create_pdf(
         component_usage["cards"] += len(step_blocks)
 
     def add_closing_section(section_blocks: list[dict[str, str]]) -> None:
-        """Keep a short final promise and action together as a compact visual ending."""
+        """Resolve a short final promise as a composed two-column end card."""
         if family == "asymmetric_feature_grid":
             panel_hex = brand_dark_hex
         elif family == "modular_announcement":
@@ -524,13 +535,15 @@ def create_pdf(
         panel_background = _reportlab_color(panel_hex)
         panel_foreground_hex = _legible_foreground(panel_hex, palette["text"])
         panel_foreground = _reportlab_color(panel_foreground_hex)
-        close_h = ParagraphStyle("close-h", parent=styles["h2"], fontSize=min(22, h2_size), leading=min(25, h2_size * 1.1), textColor=panel_foreground, spaceBefore=0, spaceAfter=0)
+        close_h = ParagraphStyle("close-h", parent=styles["h2"], fontSize=min(21, h2_size), leading=min(24, h2_size * 1.1), textColor=panel_foreground, spaceBefore=0, spaceAfter=0, alignment=TA_LEFT)
         close_body = ParagraphStyle("close-body", parent=styles["body"], fontSize=9.5, leading=13, textColor=panel_foreground, spaceAfter=0)
-        rows: list[list[Any]] = []
+        heading_flowable: Any = ""
+        body_values: list[str] = []
+        action_flowable: Any = ""
         for block in section_blocks:
             safe = _inline_markdown(block["text"])
             if block["kind"].startswith("heading"):
-                rows.append([Paragraph(safe, close_h)])
+                heading_flowable = Paragraph(safe, close_h)
                 component_usage["headings"] += 1
             elif block["kind"] == "action":
                 close_button_hex = palette["surface"]
@@ -543,23 +556,41 @@ def create_pdf(
                     border=_reportlab_color(close_button_hex), border_width=0,
                     radius=_number(primary_button.get("radius"), 16, 0, 20), padding=8, min_height=31,
                 )
-                rows.append([Table([[action]], colWidths=[min(190, document.width * 0.42)], hAlign="LEFT", style=TableStyle([
+                action_flowable = Table([[action]], colWidths=[min(190, document.width * 0.4)], hAlign="LEFT", style=TableStyle([
                     ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                     ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ]))])
+                ]))
                 component_usage["actions"] += 1
             else:
-                rows.append([Paragraph(safe, close_body)])
+                body_values.append(safe)
                 component_usage["standard_blocks"] += 1
+        stripe_width = 7
+        left_width = document.width * 0.41
+        right_width = document.width - stripe_width - left_width
+        right_stack = Table(
+            [[Paragraph("<br/><br/>".join(body_values), close_body)], [action_flowable]],
+            colWidths=[right_width],
+            style=TableStyle([
+                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, 0), base * 1.5),
+                ("BOTTOMPADDING", (0, 1), (-1, 1), 0), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]),
+        )
+        stripe_hex = palette.get("accent_secondary", palette["surface"])
+        if _contrast_ratio(panel_hex, stripe_hex) < 1.25:
+            stripe_hex = palette["surface"]
         story.extend([
-            CondPageBreak(102),
-            Table(rows, colWidths=[document.width], style=TableStyle([
+            CondPageBreak(112),
+            Table([["", heading_flowable, right_stack]], colWidths=[stripe_width, left_width, right_width], style=TableStyle([
                 ("BACKGROUND", (0, 0), (-1, -1), panel_background),
-                ("LEFTPADDING", (0, 0), (-1, -1), section_padding),
-                ("RIGHTPADDING", (0, 0), (-1, -1), section_padding),
-                ("TOPPADDING", (0, 0), (-1, 0), base * 1.8),
-                ("BOTTOMPADDING", (0, -1), (-1, -1), base * 1.8),
-                ("TOPPADDING", (0, 1), (-1, -1), base),
+                ("BACKGROUND", (0, 0), (0, 0), _reportlab_color(stripe_hex)),
+                ("LEFTPADDING", (0, 0), (0, 0), 0), ("RIGHTPADDING", (0, 0), (0, 0), 0),
+                ("LEFTPADDING", (1, 0), (1, 0), section_padding),
+                ("RIGHTPADDING", (1, 0), (1, 0), section_padding),
+                ("LEFTPADDING", (2, 0), (2, 0), 0),
+                ("RIGHTPADDING", (2, 0), (2, 0), section_padding),
+                ("TOPPADDING", (0, 0), (-1, -1), base * 2.2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), base * 2.2),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ])),
             Spacer(1, base * 1.5),
