@@ -24,7 +24,7 @@ uv run kolo-design pdf create \
   --output "./output/kolo-create.pdf"
 ```
 
-Website extraction prefers Chromium-rendered computed styles, captures a source screenshot, and falls back to bounded static HTML/CSS extraction. It rejects private-network targets and validates every HTTP redirect.
+Website extraction prefers Chromium-rendered computed styles, captures a source screenshot, and falls back to bounded static HTML/CSS extraction. Rendered page-root colors and chromatic evidence take precedence over noisy stylesheet frequency so dark and light brands retain the correct semantic palette. It rejects private-network targets and validates every HTTP redirect.
 
 The resulting design system includes component recipes for heading hierarchy, primary and secondary buttons, cards, navigation, section surfaces, imagery proportions, borders, radii, shadows, padding, and alignment. A separate component inventory and expanded specimen make the extracted language inspectable before reuse.
 

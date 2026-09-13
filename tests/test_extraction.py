@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from kolo_design.extractor import _choose_colors, _choose_fonts, _color_to_hex, _component_inventory, _spacing
+from kolo_design.extractor import _choose_colors, _choose_fonts, _color_to_hex, _component_inventory, _refine_rendered_colors, _spacing
 
 
 def test_style_evidence_compiles_to_semantic_tokens() -> None:
@@ -24,6 +24,23 @@ def test_style_evidence_compiles_to_semantic_tokens() -> None:
 def test_transparent_computed_colors_are_not_treated_as_black() -> None:
     assert _color_to_hex("rgba(0, 0, 0, 0)") is None
     assert _color_to_hex("rgba(0, 122, 255, 1)") == "#007AFF"
+
+
+def test_rendered_dark_brand_overrides_noisy_static_palette() -> None:
+    rendered = {
+        "root_styles": {
+            "body": {"background": "rgb(9, 9, 9)", "color": "rgb(255, 250, 243)"},
+            "html": {"background": "rgb(9, 9, 9)", "color": "rgb(255, 250, 243)"},
+        },
+        "elements": [
+            {"tag": "section", "rect": {"width": 1440, "height": 800}, "style": {"background": "rgb(18, 16, 15)", "color": "rgb(255, 250, 243)", "border_color": "rgb(48, 37, 31)"}},
+            {"tag": "strong", "rect": {"width": 500, "height": 100}, "style": {"background": "rgba(0, 0, 0, 0)", "color": "rgb(255, 133, 87)", "border_color": "rgb(255, 133, 87)"}},
+        ],
+    }
+    colors = _refine_rendered_colors(
+        {"background": "#FFFFFF", "surface": "#F5F5F5", "text": "#000000", "accent": "#090909"}, rendered
+    )
+    assert colors == {"background": "#090909", "surface": "#12100F", "text": "#FFFAF3", "accent": "#FF8557"}
 
 
 def test_component_inventory_separates_primary_and_secondary_buttons() -> None:

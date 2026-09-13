@@ -96,7 +96,15 @@ def browser_snapshot(url: str) -> dict[str, Any] | None:
                       }
                     };
                   });
-                  return { title: document.title, html: document.documentElement.outerHTML, computed_css: rows.join('\\n'), elements, viewport: { width: innerWidth, height: innerHeight } };
+                  const rootStyle = (el) => {
+                    const s = getComputedStyle(el);
+                    return { color: s.color, background: s.backgroundColor, font_family: s.fontFamily };
+                  };
+                  return {
+                    title: document.title, html: document.documentElement.outerHTML, computed_css: rows.join('\\n'), elements,
+                    root_styles: { html: rootStyle(document.documentElement), body: rootStyle(document.body) },
+                    viewport: { width: innerWidth, height: innerHeight }
+                  };
                 }"""
             )
             snapshot["url"] = page.url

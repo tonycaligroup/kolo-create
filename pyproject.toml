@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kolo-create"
-version = "0.3.0"
+version = "0.3.1"
 description = "Unified website-to-design-system and design-system-to-PDF skill for Kolo"
 requires-python = ">=3.11"
 dependencies = [

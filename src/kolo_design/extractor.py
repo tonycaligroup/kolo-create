@@ -121,6 +121,55 @@ def _choose_colors(css: str) -> tuple[dict[str, str], list[dict[str, Any]]]:
     return {"background": background, "surface": surface, "text": text, "accent": accent}, evidence
 
 
+def _refine_rendered_colors(colors: dict[str, str], rendered: dict[str, Any] | None) -> dict[str, str]:
+    """Prefer what the browser actually paints over noisy stylesheet frequency."""
+    if not rendered:
+        return colors
+    result = dict(colors)
+    roots = rendered.get("root_styles") or {}
+    root_backgrounds = [
+        _color_to_hex((roots.get(node) or {}).get("background", ""))
+        for node in ("body", "html")
+    ]
+    background = next((value for value in root_backgrounds if value), result["background"])
+    root_foregrounds = [
+        _color_to_hex((roots.get(node) or {}).get("color", ""))
+        for node in ("body", "html")
+    ]
+    text = next((value for value in root_foregrounds if value and _contrast(background, value) >= 3), result["text"])
+
+    elements = rendered.get("elements") or []
+    container_backgrounds: list[str] = []
+    color_counts: Counter[str] = Counter()
+    for element in elements:
+        style = element.get("style") or {}
+        for key in ("color", "background", "border_color"):
+            if value := _color_to_hex(style.get(key, "")):
+                color_counts[value] += 1
+        if element.get("tag") in {"article", "aside", "div", "section", "header", "footer"}:
+            value = _color_to_hex(style.get("background", ""))
+            rect = element.get("rect") or {}
+            if value and value != background and rect.get("width", 0) >= 120 and rect.get("height", 0) >= 50:
+                container_backgrounds.append(value)
+    surface = Counter(container_backgrounds).most_common(1)[0][0] if container_backgrounds else result["surface"]
+    if _contrast(surface, text) < 2.5:
+        surface = result["surface"]
+
+    excluded = {background, surface, text}
+
+    def chroma(value: str) -> float:
+        red, green, blue = (channel / 255 for channel in _rgb(value))
+        return colorsys.rgb_to_hsv(red, green, blue)[1]
+
+    accent_candidates = [value for value in color_counts if value not in excluded and chroma(value) >= 0.25]
+    accent = max(
+        accent_candidates,
+        key=lambda value: (chroma(value) * 3) + math.log1p(color_counts[value]) * 0.35,
+        default=result["accent"],
+    )
+    return {"background": background, "surface": surface, "text": text, "accent": accent}
+
+
 def _choose_fonts(css: str, soup: BeautifulSoup) -> tuple[str, str, list[dict[str, Any]]]:
     families: Counter[str] = Counter()
     for match in FONT_PATTERN.findall(css):
@@ -365,6 +414,7 @@ def extract_brand(url: str, workspace: Path, name: str | None = None) -> dict[st
             continue
     css = "\n".join(css_parts)
     colors, color_evidence = _choose_colors(css)
+    colors = _refine_rendered_colors(colors, rendered)
     display_font, body_font, font_evidence = _choose_fonts(css, soup)
     base_spacing, spacing_scale = _spacing(css)
     radii = [round(float(value)) for value in RADIUS_PATTERN.findall(css) if 2 <= float(value) <= 100]
