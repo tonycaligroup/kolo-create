@@ -20,6 +20,7 @@ from .browser_extract import _browser_executable
 from .contracts import validate_design_system, validate_document_request
 from .planner import source_blocks
 from .presentation_planner import DeterministicPresentationPlanner, PresentationPlanner, validate_presentation_plan
+from .presentation_art_direction import apply_presentation_art_direction
 from .util import read_json, sha256_bytes, write_json
 
 
@@ -152,11 +153,14 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
                     long_copy_orphans += 1
                 name_node = shape.find("p:nvSpPr/p:cNvPr", namespaces)
                 shape_name = name_node.get("name") if name_node is not None else ""
-                safe_line_lengths = {"primary-copy": 36, "supporting-copy": 28, "closing-copy": 47}
-                if shape_name in safe_line_lengths and any(
-                    len(paragraph) > safe_line_lengths[shape_name] for paragraph in paragraphs
-                ):
-                    unsafe_controlled_lines += 1
+                if shape_name in {"primary-copy", "supporting-copy", "closing-copy"} and max_size:
+                    extent = shape.find("p:spPr/a:xfrm/a:ext", namespaces)
+                    if extent is not None:
+                        width_px = int(extent.get("cx", "0")) / 9_525
+                        font_px = (max_size / 100) * 96 / 72
+                        conservative_capacity = max(18, int(width_px / (font_px * 0.65)))
+                        if any(len(paragraph) > conservative_capacity for paragraph in paragraphs):
+                            unsafe_controlled_lines += 1
                 if (
                     name_node is not None
                     and shape_name == "title"
@@ -241,6 +245,7 @@ def create_presentation(
     planner = planner or DeterministicPresentationPlanner()
     plan = planner.plan(content, prompt, blocks)
     validate_presentation_plan(plan, blocks)
+    plan = apply_presentation_art_direction(system, plan)
 
     output_path = output_path.resolve()
     if output_path.suffix.lower() != ".pptx":
@@ -294,7 +299,9 @@ def create_presentation(
             "unbalanced_headlines": package_counts["unbalanced_headlines"],
             "long_copy_orphans": package_counts["long_copy_orphans"],
             "unsafe_controlled_lines": package_counts["unsafe_controlled_lines"],
+            "distinct_layout_variants": len({slide["variant"] for slide in plan["slides"]}),
         },
+        "art_direction": plan["art_direction"],
         "preview": {
             "kind": "same-plan HTML composition preview",
             "literal_powerpoint_render": False,
@@ -324,5 +331,6 @@ def create_presentation(
         "layouts": layouts,
         "quality": str(quality_path),
         "planner": planner.version,
+        "art_direction": plan["art_direction"],
         "design_system": {"id": system["id"], "version": system["version"]},
     }

@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website or renderable frontend source, then use that saved system with user-supplied text and a design prompt to produce a polished PDF or editable PowerPoint. Use when a user wants to capture brand language, generate branded documents or presentations, refresh a saved brand, or reuse a brand across formats.
 metadata:
-  version: "0.13.1"
+  version: "0.14.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.13.1
+version: 0.14.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: extraction creates a reusable versioned design system; artifact generation consumes an exact saved version without recrawling or modifying it.
@@ -76,6 +76,8 @@ Run `npm install --ignore-scripts` in the skill directory during installation so
 The current Kolo pod has no LibreOffice. Render HTML composition previews from the same layout calls with Chromium, and label them plainly as same-plan previews rather than literal PowerPoint renders. Validate the actual PPTX package separately: require every source block in its text XML, native editable shape elements, the expected slide count, supported images only, and no off-canvas geometry. Accept only PNG, JPEG, and WebP at the PptxGenJS boundary; this excludes the ICNS, JXL, and HEIF parsers named in the current transitive `image-size` advisory.
 
 Never promote a long paragraph to oversized display text. Long copy must use conservative, explicit line fitting, and long headlines must receive balanced line breaks. Fail generation when a controlled line can reflow inside its box or when a final line becomes a one-word widow.
+
+Apply deterministic deck-level art direction from the saved design system. Choose among precision, kinetic, editorial, product, and monochrome profiles using typography, palette chroma, media coverage, and primary visual mode. Each profile owns distinct cover, process, feature, statement, section, image, and closing variants. Store the selected profile, deck motif, accent strategy, and per-slide variant in the inspectable presentation plan and layout exports; do not reduce these profiles to recolors of one geometry.
 
 For semantic narrative restructuring, add `--planner llm --model "<workspace-entitled-model>"`. The PowerPoint planner follows the same workspace catalog and credential rules as the PDF planner. Do not convert PDF pages into slide images.
 

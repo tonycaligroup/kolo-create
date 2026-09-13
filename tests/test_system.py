@@ -31,6 +31,7 @@ from kolo_design.pdf_designer import (
 )
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
 from kolo_design.presentation_planner import DeterministicPresentationPlanner, validate_presentation_plan
+from kolo_design.presentation_art_direction import apply_presentation_art_direction, presentation_profile
 from kolo_design.presentation_designer import _safe_presentation_system, create_presentation
 from kolo_design.util import read_json
 
@@ -270,6 +271,27 @@ def test_presentation_plan_preserves_blocks_and_uses_slide_archetypes() -> None:
     assert {slide["archetype"] for slide in plan["slides"]} >= {"cover", "process", "feature-list", "closing"}
 
 
+@pytest.mark.parametrize(("system", "expected"), [
+    ({"tokens": {"typography": {"display_fallback": "serif"}, "colors": {"accent": "#FFE01B"}}}, "editorial"),
+    ({"tokens": {"typography": {"display_fallback": "sans-serif"}, "colors": {"accent": "#111111"}}}, "monochrome"),
+    ({"tokens": {"typography": {"display_fallback": "sans-serif"}, "colors": {"accent": "#FFDB00"}}, "visual_language": {"primary_mode": "product-led"}}, "product"),
+    ({"tokens": {"typography": {"display_fallback": "sans-serif"}, "colors": {"accent": "#D2003C"}}, "visual_language": {"media_coverage": 0.9}}, "kinetic"),
+    ({"tokens": {"typography": {"display_fallback": "sans-serif"}, "colors": {"accent": "#007AFF"}}, "visual_language": {"media_coverage": 0.1}}, "precision"),
+])
+def test_presentation_profile(system: dict[str, object], expected: str) -> None:
+    assert presentation_profile(system) == expected
+
+
+def test_presentation_art_direction_assigns_inspectable_variants() -> None:
+    plan = {"slides": [{"archetype": "cover"}, {"archetype": "closing"}]}
+    system = {
+        "tokens": {"typography": {"display_fallback": "serif"}, "colors": {"accent": "#FFE01B"}},
+    }
+    directed = apply_presentation_art_direction(system, plan)
+    assert directed["art_direction"]["profile"] == "editorial"
+    assert [slide["variant"] for slide in directed["slides"]] == ["editorial-poster", "editorial-signoff"]
+
+
 @pytest.mark.skipif(not (Path(__file__).parents[1] / "node_modules" / "pptxgenjs").is_dir(), reason="run npm install for presentation tests")
 def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
     output = tmp_path / "designed.pptx"
@@ -292,6 +314,7 @@ def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
     assert quality["checks"]["unbalanced_headlines"] == 0
     assert quality["checks"]["long_copy_orphans"] == 0
     assert quality["checks"]["unsafe_controlled_lines"] == 0
+    assert quality["checks"]["distinct_layout_variants"] >= 3
 
 
 def test_powerpoint_rejects_unsupported_image_formats_before_node() -> None:
