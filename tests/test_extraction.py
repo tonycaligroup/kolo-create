@@ -215,6 +215,46 @@ def test_dominant_light_canvas_replaces_noisy_static_dark_background() -> None:
     assert colors["text"] == "#000000"
 
 
+def test_dominant_dark_canvas_replaces_unseen_static_campaign_color() -> None:
+    rendered = {
+        "root_styles": {
+            "body": {"background": "transparent", "color": "#000000"},
+            "html": {"background": "transparent", "color": "#000000"},
+        },
+        "viewport": {"width": 1000, "height": 1000},
+        "elements": [
+            {
+                "tag": "div", "text_sample": "Skip to main content", "rect": {"width": 1000, "height": 1000},
+                "viewport": {"visible": True, "area_ratio": 1.0}, "semantic": {"region": "body", "overlay": False},
+                "style": {"background": "#FFFFFF", "color": "#000000", "border_color": "#FFFFFF"},
+            },
+            *[
+                {
+                    "tag": "section", "text_sample": "Go anywhere with Uber", "rect": {"width": 1000, "height": 500},
+                    "viewport": {"visible": True, "area_ratio": 0.5}, "semantic": {"region": "section", "overlay": False},
+                    "style": {"background": "#000000", "color": "#FFFFFF", "border_color": "#000000"},
+                }
+                for _ in range(3)
+            ],
+            *[
+                {
+                    "tag": "div", "text_sample": "Ride details", "rect": {"width": 280, "height": 100},
+                    "viewport": {"visible": True, "area_ratio": 0.028}, "semantic": {"region": "section", "overlay": False},
+                    "style": {"background": "#383838", "color": "#FFFFFF", "border_color": "#383838"},
+                }
+                for _ in range(6)
+            ],
+        ],
+    }
+    colors = _refine_rendered_colors(
+        {"background": "#F43B00", "surface": "#000000", "text": "#FFFFFF", "accent": "#F43B00"}, rendered
+    )
+    assert colors["background"] == "#000000"
+    assert colors["surface"] == "#383838"
+    assert colors["text"] == "#FFFFFF"
+    assert colors["accent"] == "#FFFFFF"
+
+
 def test_rendered_heading_and_body_fonts_define_portable_categories() -> None:
     rendered = {
         "elements": [

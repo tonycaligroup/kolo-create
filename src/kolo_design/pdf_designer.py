@@ -354,8 +354,11 @@ def create_pdf(
             elif family == "asymmetric_feature_grid":
                 canvas.setFillColor(brand_dark)
                 canvas.rect(width * 0.57, 0, width * 0.43, height * 0.72, stroke=0, fill=1)
-                canvas.setFillColor(accent_secondary)
-                canvas.rect(width * 0.77, 0, width * 0.23, height * 0.31, stroke=0, fill=1)
+                if hero_asset and Path(hero_asset["path"]).exists():
+                    draw_cover_image(canvas, hero_asset["path"], width * 0.57, 0, width * 0.43, height * 0.72)
+                else:
+                    canvas.setFillColor(accent_secondary)
+                    canvas.rect(width * 0.77, 0, width * 0.23, height * 0.31, stroke=0, fill=1)
             elif family == "numbered_process":
                 canvas.setFillColor(surface)
                 canvas.setFont(display_font, min(170, width * 0.28))

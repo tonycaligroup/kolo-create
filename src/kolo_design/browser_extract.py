@@ -123,7 +123,8 @@ def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
     brand = (urlparse(base_url).hostname or "").lower().removeprefix("www.").split(".")[0]
     locator = page.locator(
         'header img,header svg,nav img,nav svg,a[href="/"] img,a[href="/"] svg,'
-        '[class*="logo" i] img,[class*="logo" i] svg,img[alt*="logo" i]'
+        '[class*="logo" i] img,[class*="logo" i] svg,img[alt*="logo" i],'
+        'header a,nav a,[role="banner"] a'
     )
     ranked: list[tuple[float, Any, dict[str, Any]]] = []
     for index in range(min(locator.count(), 80)):
@@ -134,13 +135,16 @@ def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
                   const r = el.getBoundingClientRect(), s = getComputedStyle(el);
                   const hint = [el.id, el.className, el.getAttribute('alt'), el.getAttribute('aria-label'), el.getAttribute('src')]
                     .filter((value) => typeof value === 'string').join(' ').toLowerCase();
+                  const text = (el.innerText || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+                  const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
                   const inHeader = Boolean(el.closest('header,nav'));
                   const homeLink = Boolean(el.closest('a[href="/"],a[href$=".com/"],a[href$=".ai/"]'));
                   return {
                     visible: r.width >= 35 && r.height >= 12 && r.width <= 500 && r.height <= 180 &&
                       s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || 1) > 0 && r.bottom > 0 && r.top < innerHeight,
-                    width: r.width, height: r.height, y: r.y, hint, inHeader, homeLink,
-                    brandMatch: Boolean(brand && hint.includes(brand))
+                    width: r.width, height: r.height, y: r.y, hint, text, inHeader, homeLink,
+                    brandMatch: Boolean(brand && hint.includes(brand)),
+                    exactBrandText: Boolean(brand && (text === brand || aria === brand || aria === `${brand} logo`))
                   };
                 }""",
                 brand,
@@ -153,6 +157,7 @@ def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
                 + (45 if info.get("homeLink") else 0)
                 + (55 if "logo" in str(info.get("hint", "")) else 0)
                 + (35 if info.get("brandMatch") else 0)
+                + (90 if info.get("exactBrandText") else 0)
                 + (20 if float(info.get("y", 9999)) < 180 else 0)
                 + (15 if 1.5 <= aspect <= 10 else 0)
             )

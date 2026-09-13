@@ -209,7 +209,7 @@ def _refine_rendered_colors(
         if (
             (root_accepted and root_is_dark and painted_is_light)
             or (not root_accepted and current_pair_is_unreadable)
-            or (not root_accepted and painted_is_light and painted_is_dominant)
+            or (not root_accepted and painted_is_dominant)
         ):
             background = painted_background
     readable_text = [value for value in text_counts if _contrast(background, value) >= 3]
@@ -230,7 +230,16 @@ def _refine_rendered_colors(
     else:
         surface = surface_counts.most_common(1)[0][0] if surface_counts else result["surface"]
     if _contrast(surface, text) < 2.5:
-        surface = result["surface"]
+        neutral_surfaces = [
+            value for value in color_counts
+            if value not in {background, text}
+            and _chroma(value) <= 0.15
+            and _contrast(background, value) >= 1.15
+            and _contrast(value, text) >= 3
+        ]
+        surface = max(neutral_surfaces, key=lambda value: color_counts[value], default=result["surface"])
+        if _contrast(surface, text) < 2.5:
+            surface = background
 
     excluded = {background, surface, text}
 
@@ -251,7 +260,12 @@ def _refine_rendered_colors(
         if value not in {background, text} and value not in BROWSER_DEFAULT_COLORS and _chroma(value) >= 0.25:
             accent_scores[value] += max(4, 10 - index * 2)
     fallback_accent = result["accent"]
-    if fallback_accent in BROWSER_DEFAULT_COLORS:
+    rendered_logo_colors = set(logo_colors or [])
+    if (
+        fallback_accent in BROWSER_DEFAULT_COLORS
+        or _chroma(fallback_accent) < 0.25
+        or (fallback_accent not in color_counts and fallback_accent not in rendered_logo_colors)
+    ):
         fallback_accent = text
     accent = accent_scores.most_common(1)[0][0] if accent_scores else fallback_accent
     secondary = next(
