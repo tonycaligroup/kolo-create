@@ -13,7 +13,7 @@ from kolo_design.composition import select_composition, validate_composition
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
 from kolo_design.browser_extract import _browser_executable
-from kolo_design.html_designer import _inline_html, _page_groups, create_html_pdf
+from kolo_design.html_designer import _document_html, _inline_html, _page_groups, create_html_pdf
 from kolo_design.network import FetchError, assert_public_url
 from kolo_design.pdf_designer import (
     _bounded_radius,
@@ -52,6 +52,20 @@ def test_logo_selection_rejects_raster_that_would_be_enlarged(tmp_path: Path) ->
     PILImage.new("RGB", (51, 40), "white").save(tiny)
     system = {"assets": [{"kind": "logo", "path": str(tiny)}]}
     assert select_logo_asset(system, allow_svg=False, max_width=108, max_height=46.8) is None
+
+
+def test_html_cover_uses_hero_image_once(tmp_path: Path) -> None:
+    hero = tmp_path / "hero.jpg"
+    PILImage.new("RGB", (1200, 700), "navy").save(hero)
+    system = read_json(FIXTURES / "design-system.json")
+    system["assets"] = [{"kind": "hero-image", "path": str(hero)}]
+    content = "# Launch\n\nA concise introduction."
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Create a product showcase", blocks)
+    plan["composition"] = select_composition(system, plan, blocks, "Create a product showcase")
+    markup, _ = _document_html(system, plan, blocks)
+    assert markup.count(hero.resolve().as_uri()) == 1
+    assert 'class="hero-frame"' in markup
 
 
 def test_component_foreground_falls_back_to_readable_contrast() -> None:

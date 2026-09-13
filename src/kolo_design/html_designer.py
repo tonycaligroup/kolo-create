@@ -169,9 +169,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
     logo = _asset_uri(system, "logo")
     hero = _asset_uri(system, "hero-image")
     hero_markup = (
-        '<div class="hero-grid">'
-        + "".join(f'<img src="{hero}" alt="" style="--position:{position}">' for position in ("35%", "65%", "20%", "78%"))
-        + "</div>"
+        f'<figure class="hero-frame"><img src="{hero}" alt=""></figure>'
         if hero else '<div class="hero-abstract"><i></i><i></i><i></i></div>'
     )
     logo_markup = f'<img class="logo" src="{logo}" alt="{html.escape(system["name"])} logo">' if logo else f'<div class="wordmark">{html.escape(system["name"])}</div>'
@@ -244,8 +242,8 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       .subtitle {{ font-size:15px; line-height:1.52; max-width:340px; margin:0 0 36px; }}
       .logo {{ display:block; max-width:132px; max-height:56px; object-fit:contain; object-position:left center; }}
       .wordmark {{ font-family:var(--display); font-size:28px; font-weight:700; }}
-      .hero-grid {{ align-self:stretch; margin:-.82in -.72in -.65in 0; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:10px; background:var(--background); }}
-      .hero-grid img {{ width:100%; height:100%; object-fit:cover; object-position:var(--position) center; }}
+      .hero-frame {{ align-self:stretch; margin:-.82in -.72in -.65in 0; overflow:hidden; background:var(--brand-dark); }}
+      .hero-frame img {{ display:block; width:100%; height:100%; object-fit:cover; object-position:54% center; }}
       .hero-abstract {{ align-self:stretch; margin:-.82in -.72in -.65in 0; display:grid; grid-template:1fr 1fr/1fr 1fr; gap:10px; }}
       .hero-abstract i {{ display:block; background:var(--accent); }} .hero-abstract i:nth-child(2){{background:var(--accent-2)}} .hero-abstract i:nth-child(3){{background:var(--surface);grid-column:1/3}}
       .content-page {{ padding:.55in .72in .58in; }}
