@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website, then use that saved system with user-supplied text and a design prompt to produce a polished, verified PDF. Use when a user wants to capture brand language, generate branded documents, refresh a saved brand, or reuse a brand across new PDFs.
 metadata:
-  version: "0.8.2"
+  version: "0.8.3"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.8.2
+version: 0.8.3
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: website extraction creates a reusable versioned design system; PDF generation consumes an exact saved version without recrawling or modifying it.

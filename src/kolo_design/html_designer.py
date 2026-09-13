@@ -16,7 +16,7 @@ from playwright.sync_api import sync_playwright
 from pypdf import PdfReader
 
 from .browser_extract import _browser_executable
-from .assets import select_logo_asset
+from .assets import raster_dimensions, select_logo_asset
 from .composition import select_composition, validate_composition
 from .contracts import validate_design_system, validate_document_request
 from .pdf_designer import (
@@ -63,6 +63,25 @@ def _asset_uri(system: dict[str, Any], kind: str) -> str | None:
         if asset.get("kind") == kind and candidate.suffix.lower() in suffixes and candidate.exists():
             return candidate.resolve().as_uri()
     return None
+
+
+def _hero_treatment(system: dict[str, Any]) -> tuple[str | None, str]:
+    """Match raster hero geometry to a slot that does not require enlargement."""
+    suffixes = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+    for asset in system.get("assets") or []:
+        path = Path(str(asset.get("path", "")))
+        if asset.get("kind") != "hero-image" or path.suffix.lower() not in suffixes or not path.exists():
+            continue
+        dimensions = raster_dimensions(path)
+        if not dimensions:
+            continue
+        width, height = dimensions
+        aspect = width / max(1, height)
+        if aspect >= 1.25 and width >= 1020 and height >= 590:
+            return path.resolve().as_uri(), "landscape"
+        if aspect < 1.25 and width >= 510 and height >= 1320:
+            return path.resolve().as_uri(), "portrait"
+    return None, "abstract"
 
 
 def _page_groups(sections: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -167,7 +186,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
     card_padding = _number(base * 3, 14, 10, 22)
     family = plan["composition"]["family"]
     logo = _asset_uri(system, "logo")
-    hero = _asset_uri(system, "hero-image")
+    hero, hero_layout = _hero_treatment(system)
     hero_markup = (
         f'<figure class="hero-frame"><img src="{hero}" alt=""></figure>'
         if hero else '<div class="hero-abstract"><i></i><i></i><i></i></div>'
@@ -236,6 +255,8 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       .page:last-child {{ break-after:auto; page-break-after:auto; }}
       .cover {{ padding:.82in .72in .65in; display:grid; grid-template-columns:50% 50%; gap:0; }}
       .cover-copy {{ position:relative; z-index:2; align-self:center; padding-right:.32in; }}
+      .cover.hero-landscape {{ grid-template-columns:1fr; grid-template-rows:56% 44%; }}
+      .cover.hero-landscape .cover-copy {{ max-width:6.35in; padding-right:0; }}
       .eyebrow {{ color:var(--eyebrow); font-size:10px; text-transform:uppercase; letter-spacing:1.2px; font-weight:700; margin-bottom:28px; }}
       h1,h2 {{ font-family:var(--display); font-weight:500; letter-spacing:-.025em; margin:0; }}
       h1 {{ font-size:var(--h1); line-height:1.02; margin-bottom:20px; }}
@@ -244,6 +265,8 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
       .wordmark {{ font-family:var(--display); font-size:28px; font-weight:700; }}
       .hero-frame {{ align-self:stretch; margin:-.82in -.72in -.65in 0; overflow:hidden; background:var(--brand-dark); }}
       .hero-frame img {{ display:block; width:100%; height:100%; object-fit:cover; object-position:54% center; }}
+      .hero-landscape .hero-frame {{ margin:0 -.72in -.65in; }}
+      .hero-landscape .hero-frame img {{ object-position:center center; }}
       .hero-abstract {{ align-self:stretch; margin:-.82in -.72in -.65in 0; display:grid; grid-template:1fr 1fr/1fr 1fr; gap:10px; }}
       .hero-abstract i {{ display:block; background:var(--accent); }} .hero-abstract i:nth-child(2){{background:var(--accent-2)}} .hero-abstract i:nth-child(3){{background:var(--surface);grid-column:1/3}}
       .content-page {{ padding:.55in .72in .58in; }}
@@ -276,7 +299,7 @@ def _document_html(system: dict[str, Any], plan: dict[str, Any], blocks: list[di
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         f'<meta name="generator" content="Kolo Create HTML renderer"><title>{html.escape(plan["title"])}</title><style>{css}</style></head>'
         f'<body class="family-{family}">'
-        '<article class="page cover" data-page="1">'
+        f'<article class="page cover hero-{hero_layout}" data-page="1">'
         f'<div class="cover-copy"><div class="eyebrow">{html.escape(system["name"])} design language</div>'
         f'<h1>{_inline_html(plan["title"])}</h1><p class="subtitle">{_inline_html(cover_subtitle)}</p>{logo_markup}</div>'
         f'{hero_markup}</article>{"".join(body_pages)}</body></html>'

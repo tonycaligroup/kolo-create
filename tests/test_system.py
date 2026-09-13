@@ -66,6 +66,7 @@ def test_html_cover_uses_hero_image_once(tmp_path: Path) -> None:
     markup, _ = _document_html(system, plan, blocks)
     assert markup.count(hero.resolve().as_uri()) == 1
     assert 'class="hero-frame"' in markup
+    assert 'class="page cover hero-landscape"' in markup
 
 
 def test_component_foreground_falls_back_to_readable_contrast() -> None:
