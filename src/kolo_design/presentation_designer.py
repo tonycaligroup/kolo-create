@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import io
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -182,6 +184,58 @@ def _safe_presentation_system(system: dict[str, Any]) -> tuple[dict[str, Any], l
     return safe_system, rejected
 
 
+def _normalize_presentation_images(system: dict[str, Any], preview_dir: Path) -> list[dict[str, Any]]:
+    """Decode hero imagery once and give PowerPoint honest JPEG/PNG files.
+
+    Browser image endpoints sometimes return WebP bytes behind a .jpg URL. PptxGenJS
+    then cannot discover the intrinsic dimensions and stretches the image to its
+    frame. Normalizing removes that ambiguity while retaining the source resolution.
+    """
+    normalized: list[dict[str, Any]] = []
+    render_assets = preview_dir / "render-assets"
+    for asset in system.get("assets", []):
+        if asset.get("kind") != "hero-image":
+            continue
+        source = Path(str(asset.get("path", "")))
+        try:
+            with PILImage.open(source) as image:
+                image.load()
+                width, height = image.size
+                has_alpha = image.mode in {"RGBA", "LA"} or (
+                    image.mode == "P" and "transparency" in image.info
+                )
+                render_assets.mkdir(parents=True, exist_ok=True)
+                fingerprint = str(asset.get("sha256") or sha256_bytes(source.read_bytes()))[:12]
+                suffix = ".png" if has_alpha else ".jpg"
+                target = render_assets / f"{asset.get('id', 'image')}-{fingerprint}{suffix}"
+                if has_alpha:
+                    image.convert("RGBA").save(target, "PNG", optimize=True)
+                    media_type = "image/png"
+                else:
+                    image.convert("RGB").save(
+                        target, "JPEG", quality=95, subsampling=0, optimize=True
+                    )
+                    media_type = "image/jpeg"
+                asset["original_path"] = str(source)
+                asset["path"] = str(target)
+                asset["media_type"] = media_type
+                asset["pixel_width"] = width
+                asset["pixel_height"] = height
+                asset["aspect_ratio"] = round(width / max(1, height), 4)
+                normalized.append({
+                    "asset_id": str(asset.get("id", "image")),
+                    "source": str(source),
+                    "render_path": str(target),
+                    "width": width,
+                    "height": height,
+                })
+        except (OSError, ValueError):
+            # The earlier allowlist is intentionally independent from decoding.
+            # A broken asset remains available for the renderer's normal fallback.
+            continue
+    return normalized
+
+
 def _repair_content_type_targets(path: Path) -> list[str]:
     """Remove PptxGenJS overrides that point at slide masters it did not write."""
     namespace = "http://schemas.openxmlformats.org/package/2006/content-types"
@@ -232,6 +286,7 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
         namespaces = {
             "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
             "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
+            "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
         }
         all_text: list[str] = []
         shape_count = 0
@@ -240,11 +295,46 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
         unbalanced_headlines = 0
         long_copy_orphans = 0
         unsafe_controlled_lines = 0
+        distorted_images = 0
         for index in range(1, slide_count + 1):
             root = ElementTree.fromstring(archive.read(f"ppt/slides/slide{index}.xml"))
             all_text.extend(node.text or "" for node in root.findall(".//a:t", namespaces))
             shape_count += len(root.findall(".//p:sp", namespaces))
             image_count += len(root.findall(".//p:pic", namespaces))
+            relationship_path = f"ppt/slides/_rels/slide{index}.xml.rels"
+            relationships: dict[str, str] = {}
+            if relationship_path in names:
+                relationship_root = ElementTree.fromstring(archive.read(relationship_path))
+                relationships = {
+                    node.get("Id", ""): node.get("Target", "")
+                    for node in relationship_root
+                }
+            for picture in root.findall(".//p:pic", namespaces):
+                name_node = picture.find("p:nvPicPr/p:cNvPr", namespaces)
+                if name_node is None or name_node.get("name") != "brand-image":
+                    continue
+                blip = picture.find("p:blipFill/a:blip", namespaces)
+                extent = picture.find("p:spPr/a:xfrm/a:ext", namespaces)
+                source_rect = picture.find("p:blipFill/a:srcRect", namespaces)
+                if blip is None or extent is None:
+                    continue
+                relation_id = blip.get(f"{{{namespaces['r']}}}embed", "")
+                target = relationships.get(relation_id, "")
+                media_path = posixpath.normpath(posixpath.join("ppt/slides", target))
+                if media_path not in names:
+                    continue
+                try:
+                    with PILImage.open(io.BytesIO(archive.read(media_path))) as image:
+                        source_ratio = image.width / max(1, image.height)
+                except (OSError, ValueError):
+                    continue
+                frame_ratio = int(extent.get("cx", "0")) / max(1, int(extent.get("cy", "0")))
+                crop_values = [
+                    int(source_rect.get(edge, "0")) if source_rect is not None else 0
+                    for edge in ("l", "r", "t", "b")
+                ]
+                if abs(source_ratio / max(frame_ratio, 0.001) - 1) > 0.01 and not any(crop_values):
+                    distorted_images += 1
             for shape in root.findall(".//p:sp", namespaces):
                 shape_text = " ".join(node.text or "" for node in shape.findall(".//a:t", namespaces)).strip()
                 sizes = [int(node.get("sz", "0")) for node in shape.findall(".//a:rPr", namespaces)]
@@ -306,6 +396,8 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
             raise RuntimeError("PowerPoint package contains long copy without controlled, widow-safe line breaks")
         if unsafe_controlled_lines:
             raise RuntimeError("PowerPoint package contains a controlled text line that can reflow inside its box")
+        if distorted_images:
+            raise RuntimeError("PowerPoint package contains brand imagery stretched without an aspect-preserving crop")
         return {
             "editable_shapes": shape_count,
             "embedded_images": image_count,
@@ -313,6 +405,7 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
             "unbalanced_headlines": unbalanced_headlines,
             "long_copy_orphans": long_copy_orphans,
             "unsafe_controlled_lines": unsafe_controlled_lines,
+            "distorted_images": distorted_images,
         }
 
 
@@ -361,6 +454,7 @@ def create_presentation(
         raise ValueError("PowerPoint output must use the .pptx extension")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     preview_dir = output_path.parent / f"{output_path.stem}-preview"
+    normalized_images = _normalize_presentation_images(render_system, preview_dir)
     plan_path = output_path.with_suffix(".presentation-plan.json")
     quality_path = output_path.with_suffix(".quality.json")
     write_json(plan_path, plan)
@@ -402,12 +496,14 @@ def create_presentation(
             "editable_shape_count": package_counts["editable_shapes"],
             "embedded_image_count": package_counts["embedded_images"],
             "unsupported_images_rejected": len(rejected_images),
+            "normalized_presentation_images": len(normalized_images),
             "off_canvas_geometry_absent": True,
             "stale_content_type_targets_repaired": len(repaired_content_types),
             "oversized_text_walls": package_counts["oversized_text_walls"],
             "unbalanced_headlines": package_counts["unbalanced_headlines"],
             "long_copy_orphans": package_counts["long_copy_orphans"],
             "unsafe_controlled_lines": package_counts["unsafe_controlled_lines"],
+            "distorted_images": package_counts["distorted_images"],
             "distinct_layout_variants": len({slide["variant"] for slide in plan["slides"]}),
         },
         "art_direction": plan["art_direction"],

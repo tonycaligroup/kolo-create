@@ -32,7 +32,11 @@ from kolo_design.pdf_designer import (
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
 from kolo_design.presentation_planner import DeterministicPresentationPlanner, validate_presentation_plan
 from kolo_design.presentation_art_direction import apply_presentation_art_direction, presentation_profile
-from kolo_design.presentation_designer import _safe_presentation_system, create_presentation
+from kolo_design.presentation_designer import (
+    _normalize_presentation_images,
+    _safe_presentation_system,
+    create_presentation,
+)
 from kolo_design.util import read_json
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -314,6 +318,7 @@ def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
     assert quality["checks"]["unbalanced_headlines"] == 0
     assert quality["checks"]["long_copy_orphans"] == 0
     assert quality["checks"]["unsafe_controlled_lines"] == 0
+    assert quality["checks"]["distorted_images"] == 0
     assert quality["checks"]["distinct_layout_variants"] >= 3
 
 
@@ -339,6 +344,27 @@ def test_powerpoint_rejects_active_svg_logo(tmp_path: Path) -> None:
     assert rejected == [str(logo)]
     assert safe["assets"] == []
     assert safe["presentation_logo"] is None
+
+
+def test_powerpoint_normalizes_mislabeled_webp_without_changing_geometry(tmp_path: Path) -> None:
+    source = tmp_path / "hero.jpg"
+    PILImage.new("RGB", (320, 120), "#CC1E2C").save(source, "WEBP", quality=95)
+    system = {
+        "assets": [{
+            "id": "hero-1", "kind": "hero-image", "path": str(source),
+            "media_type": "image/webp", "sha256": "abc123",
+        }]
+    }
+    normalized = _normalize_presentation_images(system, tmp_path / "preview")
+    target = Path(system["assets"][0]["path"])
+
+    assert len(normalized) == 1
+    assert target.suffix == ".jpg"
+    assert target.read_bytes().startswith(b"\xff\xd8\xff")
+    with PILImage.open(target) as image:
+        assert image.size == (320, 120)
+        assert image.format == "JPEG"
+    assert system["assets"][0]["aspect_ratio"] == pytest.approx(320 / 120, rel=0.001)
 
 
 def test_html_renderer_helpers_preserve_markup_and_page_ownership() -> None:

@@ -848,9 +848,17 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
             final_url, payload, content_type = fetch_limited(url, MAX_ASSET_BYTES, accept="image/*")
             if not payload or not content_type.startswith("image/"):
                 continue
-            suffix = Path(urlparse(final_url).path).suffix.lower()
+            media_type = content_type.split(";", 1)[0].strip().lower()
+            suffix = {
+                "image/png": ".png",
+                "image/jpeg": ".jpg",
+                "image/jpg": ".jpg",
+                "image/webp": ".webp",
+            }.get(media_type)
+            if not suffix:
+                suffix = Path(urlparse(final_url).path).suffix.lower()
             if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
-                suffix = ".png" if "png" in content_type else ".jpg"
+                suffix = ".jpg"
             target = asset_dir / f"hero-{len(saved) + 1}{suffix}"
             atomic_write(target, payload)
             dimensions = raster_dimensions(target)
@@ -863,7 +871,7 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
                 "source_url": final_url, "source": "browser-rendered-large-media",
                 "score": round(area * 100, 2), "confidence": round(min(0.96, 0.7 + area / 4), 2),
                 "provenance": "largest non-overlay media visible in sampled viewport",
-                "sha256": sha256_bytes(payload), "media_type": content_type.split(";")[0],
+                "sha256": sha256_bytes(payload), "media_type": media_type,
                 "alt": str(element.get("alt", ""))[:240],
                 "text_sample": str(element.get("text_sample", ""))[:240],
                 "role": str((element.get("semantic") or {}).get("region", "body")),

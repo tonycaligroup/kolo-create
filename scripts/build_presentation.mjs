@@ -143,9 +143,14 @@ async function addImage(slide, asset, position, alt) {
   if (![".png", ".jpg", ".jpeg", ".webp"].includes(suffix)) return false;
   try {
     await fs.access(asset.path);
+    const sourceWidth = Number(asset.pixel_width);
+    const sourceHeight = Number(asset.pixel_height);
+    const hasIntrinsicSize = sourceWidth > 0 && sourceHeight > 0;
+    const naturalWidth = hasIntrinsicSize ? position.width : position.width;
+    const naturalHeight = hasIntrinsicSize ? naturalWidth * sourceHeight / sourceWidth : position.height;
     slide.addImage({
-      path: asset.path, altText: alt,
-      x: inch(position.left), y: inch(position.top), w: inch(position.width), h: inch(position.height),
+      path: asset.path, altText: alt, objectName: "brand-image",
+      x: inch(position.left), y: inch(position.top), w: inch(naturalWidth), h: inch(naturalHeight),
       sizing: { type: "cover", w: inch(position.width), h: inch(position.height) },
     });
     preview(slide, `<img alt="${escapeHtml(alt)}" src="${pathToFileURL(asset.path).href}" style="position:absolute;left:${position.left}px;top:${position.top}px;width:${position.width}px;height:${position.height}px;object-fit:cover">`);
