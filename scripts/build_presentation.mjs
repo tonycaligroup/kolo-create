@@ -70,6 +70,7 @@ function addRect(slide, x, y, width, height, fill, radius = 0, line = null, opti
     x: inch(x), y: inch(y), w: inch(width), h: inch(height),
     fill: { color: noHash(fill) },
     line: line ? { color: noHash(line), width: 1 } : { color: noHash(fill), transparency: 100 },
+    objectName: options.name,
     shadow: options.shadow ? {
       type: "outer", color: noHash(dark), opacity: .12, blur: 4, angle: 45, distance: 2,
     } : undefined,
@@ -375,18 +376,20 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         const [label, detail] = splitFeature(block.text);
         const lead = itemIndex === 0;
         const x = lead ? (alternate ? 738 : 72) : (alternate ? 72 : 600);
-        const y = alternate ? (lead ? 225 : 225 + (itemIndex - 1) * 135) : (lead ? 246 : 246 + (itemIndex - 1) * 148);
+        const y = alternate ? (lead ? 225 : 225 + (itemIndex - 1) * 135) : (lead ? 246 : 246 + (itemIndex - 1) * 152);
         const width = lead ? 470 : 590;
-        const height = alternate ? (lead ? 380 : 110) : (lead ? 310 : 124);
+        const height = alternate ? (lead ? 380 : 110) : (lead ? 310 : 136);
         const fill = lead ? dark : background; const color = readable(fill, ink);
         const ruleTop = y + (alternate && !lead ? 18 : 24);
         const labelTop = y + (alternate && !lead ? 43 : 58);
-        const detailTop = y + (lead ? 152 : alternate ? 76 : 94);
-        addRect(slide, x, y, width, height, fill, 8, null, { shadow: true });
+        const detailTop = y + (lead ? 152 : alternate ? 74 : 94);
+        const detailHeight = lead ? 120 : alternate ? 32 : 40;
+        addRect(slide, x, y, width, height, fill, 8, null,
+          { shadow: true, name: `feature-card-${itemIndex + 1}` });
         addRule(slide, x + 24, ruleTop, lead ? 150 : 110, itemIndex % 2 ? secondary : accent, 5);
         addText(slide, label, x + 24, labelTop, width - 48, lead ? 74 : 30, lead ? 25 : 19, color,
           { bold: true, vertical: "top", name: `feature-card-title-${itemIndex + 1}` });
-        addText(slide, detail, x + 24, detailTop, width - 48, lead ? 120 : 24, lead ? 16 : 12, color,
+        addText(slide, detail, x + 24, detailTop, width - 48, detailHeight, lead ? 16 : 12, color,
           { body: true, vertical: "top", name: `feature-card-copy-${itemIndex + 1}` });
       });
     } else if (profile === "monochrome") {
