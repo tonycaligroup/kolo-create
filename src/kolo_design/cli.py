@@ -19,7 +19,7 @@ from .source_fidelity import SourceFidelityError
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="kolo-design")
+    root = argparse.ArgumentParser(prog="kolo-create")
     commands = root.add_subparsers(dest="command", required=True)
     create_system = commands.add_parser("create", help="Create a reusable design system from a website")
     create_commands = create_system.add_subparsers(dest="create_command", required=True)
@@ -136,6 +136,22 @@ def main(argv: list[str] | None = None) -> int:
                 DeterministicPresentationPlanner(),
                 brand_demonstration=True,
             )
+            result["artifacts"] = [
+                {
+                    "kind": "pdf", "path": result["example_pdf"]["pdf"],
+                    "delivery": ["attach-to-current-chat", "open-in-visible-browser"],
+                },
+                {
+                    "kind": "powerpoint", "path": result["example_powerpoint"]["pptx"],
+                    "delivery": ["attach-to-current-chat"],
+                    "previews": result["example_powerpoint"].get("preview_html", []),
+                },
+            ]
+            result["delivery"] = {
+                "required": True,
+                "status": "pending-agent-delivery",
+                "completion_rule": "Do not report completion until both chat attachments have receipts.",
+            }
         elif args.command == "powerpoint":
             if args.planner == "llm":
                 if not args.model:

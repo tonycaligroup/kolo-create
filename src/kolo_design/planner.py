@@ -186,7 +186,6 @@ class OpenAICompatiblePlanner:
             headers={"Authorization": f"Bearer {self.token}"},
             json={
                 "model": self.model,
-                "temperature": 0.2,
                 "response_format": {"type": "json_object"},
                 "messages": [
                     {"role": "system", "content": system},

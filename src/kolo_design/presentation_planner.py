@@ -138,7 +138,7 @@ class OpenAICompatiblePresentationPlanner:
         response = httpx.post(
             f"{self.base_url}/v1/chat/completions",
             headers={"Authorization": f"Bearer {self.token}"},
-            json={"model": self.model, "temperature": 0.2, "response_format": {"type": "json_object"}, "messages": [
+            json={"model": self.model, "response_format": {"type": "json_object"}, "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": json.dumps({"design_request": prompt, "source_blocks": source_blocks})},
             ]},

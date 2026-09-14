@@ -171,7 +171,6 @@ def _invoke_direct(model: str, prompt: str, images: list[Path]) -> str:
         headers={"Authorization": f"Bearer {token}"},
         json={
             "model": model,
-            "temperature": 0.1,
             "response_format": {"type": "json_object"},
             "messages": [{"role": "user", "content": content}],
         },

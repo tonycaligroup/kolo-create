@@ -9,36 +9,38 @@ Design-system creation is deterministic first, then uses one optional bounded br
 
 The second stage never recrawls or mutates the brand. This keeps artifacts reproducible while presenting one coherent skill to the user.
 
+`kolo-create` is the canonical executable. The older `kolo-design` name remains available as a compatibility alias.
+
 ## Quick start
 
 ```sh
 uv sync --frozen
 npm install --ignore-scripts
 
-uv run kolo-design create design-system \
+uv run kolo-create create design-system \
   --url "https://kolo.ai" \
   --name "Kolo" \
   --workspace "./data"
 
 # Or ingest a frontend without executing its build or backend:
-uv run kolo-design create design-system \
+uv run kolo-create create design-system \
   --source-dir "../my-site" \
   --name "My Site" \
   --workspace "./data"
 
-uv run kolo-design pdf create \
+uv run kolo-create pdf create \
   --system "./data/brands/kolo/latest.json" \
   --content "./tests/fixtures/content.md" \
   --prompt "Create a bold executive brief called Kolo Create" \
   --output "./output/kolo-create.pdf"
 
-uv run kolo-design pdf compare \
+uv run kolo-create pdf compare \
   --system "./data/brands/kolo/latest.json" \
   --content "./tests/fixtures/content.md" \
   --prompt "Create a bold executive brief called Kolo Create" \
   --output-dir "./output/kolo-create-comparison"
 
-uv run kolo-design powerpoint create \
+uv run kolo-create powerpoint create \
   --system "./data/brands/kolo/latest.json" \
   --content "./tests/fixtures/content.md" \
   --prompt "Create a concise brand presentation" \
@@ -68,11 +70,11 @@ PDF creation compiles source Markdown into stable content-block IDs and an inspe
 Source inputs are mutually exclusive:
 
 ```sh
-kolo-design create design-system --url "https://example.com" --workspace ./data
-kolo-design create design-system --repo-url "https://github.com/org/site" --workspace ./data
-kolo-design create design-system --source-dir "../site" --workspace ./data
-kolo-design create design-system --source-archive "../site.zip" --workspace ./data
-kolo-design create design-system --browser-evidence "../tesla-browser-evidence" --workspace ./data
+kolo-create create design-system --url "https://example.com" --workspace ./data
+kolo-create create design-system --repo-url "https://github.com/org/site" --workspace ./data
+kolo-create create design-system --source-dir "../site" --workspace ./data
+kolo-create create design-system --source-archive "../site.zip" --workspace ./data
+kolo-create create design-system --browser-evidence "../tesla-browser-evidence" --workspace ./data
 ```
 
 Every website source passes a deterministic fidelity gate before extraction. Error pages, access blocks, bot challenges, and materially empty captures stop with `browser_evidence_required`; Kolo can then capture the real page from its shared visible Chromium session and import a bounded evidence directory or ZIP. See [`references/browser-evidence.md`](references/browser-evidence.md). The evidence bundle intentionally excludes cookies, headers, local storage, and browser history.
@@ -83,9 +85,9 @@ The maintained ten-site coverage matrix is [`benchmarks/site-matrix.json`](bench
 
 The comparison command evaluates two renderers without paying for two planning calls. It produces the current ReportLab PDF and a candidate HTML/CSS document and PDF from one validated plan, runs DOM overflow and grid-alignment checks, and generates side-by-side page previews plus a comparison manifest. ReportLab remains the default while repeated review determines which browser patterns deserve promotion.
 
-Every successful design-system command automatically renders the bundled Kolo Create explainer to `<workspace>/examples/<brand-id>-kolo-create.pdf` and `<workspace>/examples/<brand-id>-kolo-create.pptx`. `--example-output` and `--example-presentation-output` optionally override those destinations; they do not enable the behavior. The two stages remain separate internally, but these automatic first artifacts make every extraction immediately comparable without a model call.
+Every successful design-system command automatically renders the bundled Kolo Create explainer to `<workspace>/examples/<brand-id>-kolo-create.pdf` and `<workspace>/examples/<brand-id>-kolo-create.pptx`. `--example-output` and `--example-presentation-output` optionally override those destinations; they do not enable the behavior. The two stages remain separate internally, and the example renderers remain deterministic after the optional brand-director judgment.
 
-When the skill runs inside Kolo, its delivery contract attaches that validated example PDF to the current chat with Kolo's `message` tool and opens the same local file in the visible Kolo desktop browser. User-requested PDFs follow the same contract. The command-line program itself remains UI-independent: it returns the artifact path, while the skill performs chat and browser delivery so the renderer stays reusable in other environments.
+When the skill runs inside Kolo, its delivery contract attaches both validated examples to the current chat with Kolo's `message` tool, opens the PDF in the visible Kolo desktop browser, and opens the PowerPoint's same-plan HTML preview. The command returns a top-level delivery manifest, but paths alone are not delivery: Kolo must obtain an attachment receipt for both files before reporting completion. The command-line program itself remains UI-independent so the renderers stay reusable elsewhere.
 
 Inline bold, links, and code spans are converted for ReportLab. Emoji unsupported by the PDF fonts are removed automatically and counted in the quality report, so the agent does not need to rewrite the source into a separate print copy.
 
@@ -97,7 +99,7 @@ The deterministic planner makes the default workflow inexpensive and reproducibl
 export KOLO_LLM_BASE_URL="https://your-openai-compatible-gateway"
 export KOLO_LLM_TOKEN="..."
 
-uv run kolo-design pdf create \
+uv run kolo-create pdf create \
   --system "./data/brands/kolo/latest.json" \
   --content "./content.md" \
   --prompt "Restructure this into a concise board update" \
@@ -105,7 +107,7 @@ uv run kolo-design pdf create \
   --planner llm \
   --model "workspace-entitled-model-id"
 
-uv run kolo-design powerpoint create \
+uv run kolo-create powerpoint create \
   --system "./data/brands/kolo/latest.json" \
   --content "./content.md" \
   --prompt "Shape this into a concise leadership presentation" \

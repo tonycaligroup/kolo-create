@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kolo-create"
-version = "0.21.0"
+version = "0.21.1"
 description = "Unified brand extraction and branded PDF/PowerPoint creation skill for Kolo"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,6 +20,7 @@ dependencies = [
 dev = ["pytest>=8,<9"]
 
 [project.scripts]
+kolo-create = "kolo_design.cli:main"
 kolo-design = "kolo_design.cli:main"
 
 [tool.setuptools]

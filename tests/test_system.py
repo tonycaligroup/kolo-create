@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import zipfile
 from pathlib import Path
@@ -358,6 +359,7 @@ def test_create_design_system_command_contract() -> None:
     assert args.example_output == Path("./example.pdf")
     assert args.brand_director == "auto"
     assert args.brand_model == DEFAULT_BRAND_MODEL
+    assert parser().prog == "kolo-create"
 
 
 def test_create_design_system_source_contract() -> None:
@@ -748,7 +750,7 @@ def test_create_design_system_can_render_bundled_first_example(monkeypatch: pyte
 
 
 def test_create_design_system_automatically_renders_default_first_example(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     system_path = tmp_path / "design-system.json"
     monkeypatch.setattr(
@@ -781,6 +783,10 @@ def test_create_design_system_automatically_renders_default_first_example(
     assert powerpoint["output"] == tmp_path / "examples" / "sample-brand-kolo-create.pptx"
     assert captured["brand_demonstration"] is True
     assert powerpoint["brand_demonstration"] is True
+    result = json.loads(capsys.readouterr().out)
+    assert [artifact["kind"] for artifact in result["artifacts"]] == ["pdf", "powerpoint"]
+    assert result["delivery"]["status"] == "pending-agent-delivery"
+    assert "receipts" in result["delivery"]["completion_rule"]
 
 
 def test_source_design_system_also_renders_default_first_example(

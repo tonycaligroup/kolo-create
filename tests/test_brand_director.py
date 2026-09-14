@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import kolo_design.brand_director as brand_director_module
 from kolo_design.brand_components import select_component_plan
 from kolo_design.brand_director import DEFAULT_BRAND_MODEL, apply_brand_direction
 from kolo_design.planner import DeterministicPlanner, source_blocks
@@ -82,6 +83,29 @@ def test_brand_director_rejects_unknown_asset_ids(tmp_path: Path) -> None:
             system_path, latest_path, mode="llm",
             invoke=lambda model, prompt, images: json.dumps(_judgment("invented-logo")),
         )
+
+
+def test_direct_brand_call_omits_model_specific_temperature(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"choices": [{"message": {"content": "{}"}}]}
+
+    def fake_post(*args: object, **kwargs: object) -> Response:
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setenv("LITELLM_BASE_URL", "https://proxy.example/v1")
+    monkeypatch.setenv("LITELLM_API_KEY", "test-token")
+    monkeypatch.setattr(brand_director_module.httpx, "post", fake_post)
+    brand_director_module._invoke_direct(DEFAULT_BRAND_MODEL, "Review", [])
+    payload = captured["json"]
+    assert isinstance(payload, dict)
+    assert "temperature" not in payload
 
 
 def test_selective_section_markers_are_not_repeated_on_every_section(tmp_path: Path) -> None:
