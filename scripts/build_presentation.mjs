@@ -150,8 +150,10 @@ function addBrandMark(slide, position, fieldColor, options = {}) {
   preview(slide, `<img alt="${escapeHtml(system.name)} logo" src="${pathToFileURL(preparedLogo.asset.path).href}" style="position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;object-fit:contain;object-position:left center">`);
   return true;
 }
-function addFooter(slide, index, color = ink) {
-  addBrandMark(slide, { left: 72, top: 660, width: 128, height: 32 }, previews.get(slide).background,
+function addFooter(slide, index, color = ink, options = {}) {
+  const footerLeft = options.left ?? 72;
+  const footerField = options.field ?? previews.get(slide).background;
+  addBrandMark(slide, { left: footerLeft, top: 660, width: 128, height: 32 }, footerField,
     { color, size: 10, name: "brand-footer" });
   addText(slide, String(index).padStart(2, "0"), 1160, 668, 48, 24, 10, color, { body: true, align: "right", name: "slide-number" });
 }
@@ -526,7 +528,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addText(slide, statement?.text || "", 390, 198, 430, 390, 20, ink, { body: true, bold: true, vertical: "top", name: "primary-copy" });
       addRule(slide, 875, 198, 4, secondary, 390);
       addText(slide, remainder, 920, 198, 260, 330, 15, ink, { body: true, vertical: "top", name: "supporting-copy" });
-      addFooter(slide, index + 1);
+      addFooter(slide, index + 1, ink, { left: 390, field: background });
     } else {
       addText(slide, planSlide.title, 72, 62, 1060, 92, 42, ink, { bold: true, name: "title" });
       addRule(slide, 72, 184, 210, accent, 7);

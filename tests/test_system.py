@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import zipfile
 from pathlib import Path
@@ -15,7 +16,7 @@ from kolo_design.brand_components import build_brand_components, select_componen
 from kolo_design.composition import select_composition, validate_composition
 from kolo_design.contracts import validate_design_system
 from kolo_design.cli import parser
-from kolo_design.browser_extract import _browser_executable
+from kolo_design.browser_extract import _browser_executable, _trim_transparent_png, _visible_logo
 from kolo_design.html_designer import _document_html, _inline_html, _page_groups, create_html_pdf
 from kolo_design.network import FetchError, assert_public_url
 from kolo_design.pdf_designer import (
@@ -47,6 +48,42 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 def test_fixture_system_is_valid() -> None:
     validate_design_system(read_json(FIXTURES / "design-system.json"))
+
+
+def test_trim_transparent_logo_viewport(tmp_path: Path) -> None:
+    source = PILImage.new("RGBA", (80, 80), (0, 0, 0, 0))
+    for x in range(20, 60):
+        for y in range(30, 50):
+            source.putpixel((x, y), (0, 0, 0, 255))
+    path = tmp_path / "logo.png"
+    source.save(path)
+
+    with PILImage.open(io.BytesIO(_trim_transparent_png(path.read_bytes()))) as trimmed:
+        assert trimmed.size == (40, 20)
+
+
+@pytest.mark.skipif(not _browser_executable(), reason="Chromium is required for logo extraction")
+def test_visible_logo_prefers_small_exact_brand_svg() -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=_browser_executable(), headless=True)
+        page = browser.new_page(viewport={"width": 900, "height": 500})
+        page.set_content('''
+          <header>
+            <a href="/" aria-label="Example"><svg width="14" height="44" viewBox="0 0 14 44"><path d="M1 15h12v14H1z"/></svg></a>
+            <a href="/store" aria-label="Store"><svg width="40" height="44" viewBox="0 0 40 44"><path d="M1 15h38v14H1z"/></svg></a>
+          </header>
+        ''')
+        result = _visible_logo(page, "https://example.com/")
+        browser.close()
+
+    assert result is not None
+    assert result["width"] == 14
+    assert result["score"] >= 250
+    with PILImage.open(io.BytesIO(result["png"])) as logo:
+        assert logo.width > 100
+        assert logo.height > 100
 
 
 def test_logo_selection_prefers_vector_for_html(tmp_path: Path) -> None:

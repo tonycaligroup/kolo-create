@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import base64
+import io
 import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from PIL import Image as PILImage
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
@@ -13,6 +15,22 @@ from .network import assert_public_url
 
 
 MAX_REFERENCE_PDF_BYTES = 45 * 1024 * 1024
+
+
+def _trim_transparent_png(payload: bytes) -> bytes:
+    """Remove SVG viewport whitespace without changing the rendered mark."""
+    try:
+        with PILImage.open(io.BytesIO(payload)) as source:
+            rgba = source.convert("RGBA")
+            bbox = rgba.getchannel("A").getbbox()
+            if not bbox:
+                return payload
+            cropped = rgba.crop(bbox)
+            target = io.BytesIO()
+            cropped.save(target, "PNG", optimize=True)
+            return target.getvalue()
+    except (OSError, ValueError):
+        return payload
 
 
 def _browser_executable() -> str | None:
@@ -50,13 +68,13 @@ def rasterize_svg(payload: bytes) -> bytes | None:
         page = context.new_page()
         try:
             page.set_content(
-                f'<style>html,body{{margin:0;background:transparent}}img{{display:block;max-width:800px;max-height:500px}}</style>'
+                f'<style>html,body{{margin:0;background:transparent}}img{{display:block;width:auto;height:160px;max-width:800px}}</style>'
                 f'<img id="logo" src="data:image/svg+xml;base64,{encoded}">',
                 wait_until="load",
             )
             logo = page.locator("#logo")
             logo.wait_for(state="visible", timeout=5_000)
-            return logo.screenshot(type="png", omit_background=True)
+            return _trim_transparent_png(logo.screenshot(type="png", omit_background=True))
         except PlaywrightTimeoutError:
             return None
         finally:
@@ -198,6 +216,32 @@ def _reference_pdf(page: Any) -> tuple[bytes | None, dict[str, Any]]:
         return None, {"status": "failed", "reason": type(exc).__name__}
 
 
+def _rasterize_svg_on_page(page: Any, payload: str) -> bytes | None:
+    """Rasterize an inline mark at delivery resolution without starting another browser."""
+    encoded = base64.b64encode(payload.encode("utf-8")).decode("ascii")
+    browser = page.context.browser
+    if browser is None:
+        return None
+    render_context = browser.new_context(
+        viewport={"width": 1000, "height": 600}, device_scale_factor=3
+    )
+    render_page = render_context.new_page()
+    try:
+        render_page.set_content(
+            '<style>html,body{margin:0;background:transparent}'
+            'img{display:block;width:auto;height:160px}</style>'
+            f'<img id="logo" src="data:image/svg+xml;base64,{encoded}">',
+            wait_until="load",
+        )
+        logo = render_page.locator("#logo")
+        logo.wait_for(state="visible", timeout=5_000)
+        return _trim_transparent_png(logo.screenshot(type="png", omit_background=True))
+    except Exception:
+        return None
+    finally:
+        render_context.close()
+
+
 def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
     """Capture the strongest visible header/nav wordmark before metadata images."""
     brand = (urlparse(base_url).hostname or "").lower().removeprefix("www.").split(".")[0]
@@ -212,19 +256,21 @@ def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
         try:
             info = candidate.evaluate(
                 """(el, brand) => {
-                  const r = el.getBoundingClientRect(), s = getComputedStyle(el);
-                  const hint = [el.id, el.className, el.getAttribute('alt'), el.getAttribute('aria-label'), el.getAttribute('src')]
+                  const r = el.getBoundingClientRect(), s = getComputedStyle(el), owner = el.closest('a');
+                  const hint = [el.id, el.className, el.getAttribute('alt'), el.getAttribute('aria-label'), el.getAttribute('src'), owner?.className, owner?.getAttribute('aria-label')]
                     .filter((value) => typeof value === 'string').join(' ').toLowerCase();
-                  const text = (el.innerText || '').trim().replace(/\\s+/g, ' ').toLowerCase();
-                  const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                  const text = (el.innerText || owner?.innerText || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+                  const aria = (el.getAttribute('aria-label') || owner?.getAttribute('aria-label') || '').trim().toLowerCase();
                   const inHeader = Boolean(el.closest('header,nav'));
                   const homeLink = Boolean(el.closest('a[href="/"],a[href$=".com/"],a[href$=".ai/"]'));
+                  const exactBrandText = Boolean(brand && (text === brand || aria === brand || aria === `${brand} logo`));
                   return {
-                    visible: r.width >= 35 && r.height >= 12 && r.width <= 500 && r.height <= 180 &&
+                    visible: r.width >= (exactBrandText ? 10 : 35) && r.height >= 12 && r.width <= 500 && r.height <= 180 &&
                       s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || 1) > 0 && r.bottom > 0 && r.top < innerHeight,
                     width: r.width, height: r.height, y: r.y, hint, text, inHeader, homeLink,
+                    svg: el.tagName.toLowerCase() === 'svg' ? el.outerHTML : null,
                     brandMatch: Boolean(brand && hint.includes(brand)),
-                    exactBrandText: Boolean(brand && (text === brand || aria === brand || aria === `${brand} logo`))
+                    exactBrandText
                   };
                 }""",
                 brand,
@@ -238,6 +284,7 @@ def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
                 + (55 if "logo" in str(info.get("hint", "")) else 0)
                 + (35 if info.get("brandMatch") else 0)
                 + (90 if info.get("exactBrandText") else 0)
+                + (25 if info.get("svg") else 0)
                 + (20 if float(info.get("y", 9999)) < 180 else 0)
                 + (15 if 1.5 <= aspect <= 10 else 0)
             )
@@ -246,8 +293,12 @@ def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
             continue
     for score, candidate, info in sorted(ranked, key=lambda item: item[0], reverse=True):
         try:
+            payload = (
+                _rasterize_svg_on_page(page, str(info["svg"]))
+                if info.get("svg") else None
+            ) or _trim_transparent_png(candidate.screenshot(type="png", omit_background=True))
             return {
-                "png": candidate.screenshot(type="png", omit_background=True),
+                "png": payload,
                 "score": score,
                 "width": round(float(info["width"])),
                 "height": round(float(info["height"])),
