@@ -22,11 +22,15 @@ from .assets import raster_dimensions, select_logo_asset
 from .browser_extract import _browser_executable
 
 from .contracts import validate_design_system, validate_document_request
+from .content_map import build_content_map, validate_content_map
+from .design_grammar import compile_design_grammar, validate_design_grammar
+from .design_quality import evaluate_design_plan
 from .planner import source_blocks
 from .presentation_planner import DeterministicPresentationPlanner, PresentationPlanner, validate_presentation_plan
 from .presentation_art_direction import apply_presentation_art_direction
 from .presentation_layout import measure_presentation_layout
 from .presentation_similarity import presentation_layout_identity
+from .scene_graph import build_scene_plan, validate_scene_plan
 from .util import read_json, sha256_bytes, write_json
 
 
@@ -552,7 +556,18 @@ def create_presentation(
     planner = planner or DeterministicPresentationPlanner()
     plan = planner.plan(content, prompt, blocks)
     validate_presentation_plan(plan, blocks)
-    plan = apply_presentation_art_direction(system, plan)
+    grammar = system.get("design_grammar") or compile_design_grammar(system)
+    validate_design_grammar(grammar)
+    content_map = build_content_map(blocks, prompt)
+    validate_content_map(content_map, blocks)
+    scene_plan = build_scene_plan(grammar, content_map, format_name="presentation", brand_id=system["id"])
+    validate_scene_plan(scene_plan, blocks)
+    design_quality = evaluate_design_plan(grammar, scene_plan)
+    plan["design_grammar"] = grammar
+    plan["content_map"] = content_map
+    plan["scene_plan"] = scene_plan
+    plan["design_quality"] = design_quality
+    plan = apply_presentation_art_direction(system, plan, grammar, scene_plan)
     plan["layout_measurements"] = measure_presentation_layout(system, plan, blocks)
 
     output_path = output_path.resolve()
@@ -618,6 +633,16 @@ def create_presentation(
             "distinct_layout_variants": len({slide["variant"] for slide in plan["slides"]}),
         },
         "art_direction": plan["art_direction"],
+        "design_grammar": {
+            "signature": grammar["signature"],
+            "ranked_directions": grammar["ranked_directions"],
+            "traits": grammar["traits"],
+        },
+        "scene_plan": {
+            "signature": scene_plan["signature"],
+            "components": [scene["component"] for scene in scene_plan["scenes"]],
+        },
+        "design_quality": design_quality,
         "layout_identity": presentation_layout_identity(plan),
         "layout_measurement": {
             "engine": plan["layout_measurements"]["engine"],

@@ -12,6 +12,8 @@ def presentation_layout_identity(plan: dict[str, Any]) -> dict[str, Any]:
         {
             "archetype": str(slide.get("archetype", "")),
             "variant": str(slide.get("variant", "")),
+            "design_profile": str(slide.get("design_profile", "")),
+            "scene_component": str(slide.get("scene_component", "")),
         }
         for slide in plan.get("slides", [])
     ]

@@ -19,6 +19,7 @@ from PIL import Image, ImageColor
 from .assets import raster_dimensions
 from .browser_extract import browser_snapshot, rasterize_svg
 from .brand_components import build_brand_components
+from .design_grammar import compile_design_grammar
 from .contracts import validate_design_system
 from .network import MAX_ASSET_BYTES, MAX_HTML_BYTES, FetchError, fetch_limited
 from .reference_evidence import analyze_reference_pdf, reconcile_reference_colors
@@ -1138,11 +1139,13 @@ def extract_brand(
         },
     }
     system["brand_components"] = build_brand_components(system)
+    system["design_grammar"] = compile_design_grammar(system)
     validate_design_system(system)
     write_json(brand_dir / "design-system.json", system)
     write_json(workspace.resolve() / "brands" / brand_id / "latest.json", system)
     component_inventory_path = write_json(brand_dir / "component-inventory.json", components)
     brand_components_path = write_json(brand_dir / "brand-components.json", system["brand_components"])
+    design_grammar_path = write_json(brand_dir / "design-grammar.json", system["design_grammar"])
     atomic_write(brand_dir / "specimen.html", _specimen(system))
     return {
         "status": "succeeded",
@@ -1151,6 +1154,7 @@ def extract_brand(
         "specimen": str(brand_dir / "specimen.html"),
         "component_inventory": str(component_inventory_path),
         "brand_components": str(brand_components_path),
+        "design_grammar": str(design_grammar_path),
         "brand_id": brand_id,
         "evidence": system["evidence"]["counts"],
         "source_screenshot": str(screenshot_path) if screenshot_path else None,

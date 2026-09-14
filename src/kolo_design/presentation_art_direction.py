@@ -55,9 +55,15 @@ def presentation_profile(system: dict[str, Any]) -> str:
     return "precision"
 
 
-def apply_presentation_art_direction(system: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+def apply_presentation_art_direction(
+    system: dict[str, Any], plan: dict[str, Any], grammar: dict[str, Any] | None = None,
+    scene_plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     directed = deepcopy(plan)
-    profile = presentation_profile(system)
+    profile = (
+        str((grammar.get("ranked_directions") or [presentation_profile(system)])[0])
+        if grammar else presentation_profile(system)
+    )
     colors = system["tokens"]["colors"]
     directed["art_direction"] = {
         "schema_version": 1,
@@ -70,12 +76,28 @@ def apply_presentation_art_direction(system: dict[str, Any], plan: dict[str, Any
             "monochrome": "framed fields, hard contrast, and quiet geometry",
         }[profile],
         "accent_strategy": "dual" if colors.get("accent_secondary", colors["accent"]) != colors["accent"] else "single",
+        "direction_weights": (grammar or {}).get("direction_weights"),
+        "grammar_signature": (grammar or {}).get("signature"),
+        "selection_policy": "scene-candidate-blend/1" if scene_plan else "legacy-profile/1",
     }
-    variants = _VARIANTS[profile]
     seen: dict[str, int] = {}
     for slide in directed["slides"]:
         archetype = slide["archetype"]
         occurrence = seen.get(archetype, 0)
-        slide["variant"] = variants[archetype] + ("-alternate" if occurrence else "")
+        owned = set(slide.get("block_ids") or [])
+        scene = max(
+            (scene for scene in (scene_plan or {}).get("scenes", []) if owned & set(scene.get("block_ids") or [])),
+            key=lambda item: len(owned & set(item.get("block_ids") or [])),
+            default=None,
+        )
+        slide_profile = str((scene or {}).get("direction") or profile)
+        if slide_profile not in _VARIANTS:
+            slide_profile = profile
+        slide["design_profile"] = slide_profile
+        slide["scene_component"] = (scene or {}).get("component")
+        slide["variant"] = _VARIANTS[slide_profile][archetype] + ("-alternate" if occurrence else "")
         seen[archetype] = occurrence + 1
+    directed["art_direction"]["directions_used"] = list(dict.fromkeys(
+        slide["design_profile"] for slide in directed["slides"]
+    ))
     return directed

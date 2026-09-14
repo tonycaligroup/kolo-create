@@ -21,8 +21,12 @@ from reportlab.platypus import CondPageBreak, Flowable, HRFlowable, Image, PageB
 from .assets import select_logo_asset
 from .brand_components import select_component_plan, validate_component_plan
 from .composition import select_composition, validate_composition
+from .content_map import build_content_map, validate_content_map
 from .contracts import validate_design_system, validate_document_request
+from .design_grammar import compile_design_grammar, validate_design_grammar
+from .design_quality import evaluate_design_plan
 from .planner import DeterministicPlanner, DocumentPlanner, source_blocks, validate_plan
+from .scene_graph import build_scene_plan, validate_scene_plan
 from .util import confined, read_json, sha256_bytes, write_json
 
 EMOJI_PATTERN = re.compile(
@@ -271,6 +275,15 @@ def create_pdf(
     removed_emoji_count += title_emoji_count + subtitle_emoji_count
     plan["composition"] = select_composition(system, plan, blocks, prompt)
     validate_composition(plan["composition"])
+    plan["design_grammar"] = system.get("design_grammar") or compile_design_grammar(system)
+    validate_design_grammar(plan["design_grammar"])
+    plan["content_map"] = build_content_map(blocks, prompt)
+    validate_content_map(plan["content_map"], blocks)
+    plan["scene_plan"] = build_scene_plan(
+        plan["design_grammar"], plan["content_map"], format_name="document", brand_id=system["id"]
+    )
+    validate_scene_plan(plan["scene_plan"], blocks)
+    plan["design_quality"] = evaluate_design_plan(plan["design_grammar"], plan["scene_plan"])
     plan["component_plan"] = select_component_plan(system, plan, blocks, prompt)
     validate_component_plan(plan["component_plan"])
     family = plan["composition"]["family"]
@@ -1015,6 +1028,15 @@ def create_pdf(
         "design_system": {"id": system["id"], "version": system["version"], "path": str(design_system_path.resolve())},
         "planner": planner.version,
         "composition": plan["composition"],
+        "design_grammar": {
+            "signature": plan["design_grammar"]["signature"],
+            "ranked_directions": plan["design_grammar"]["ranked_directions"],
+        },
+        "scene_plan": {
+            "signature": plan["scene_plan"]["signature"],
+            "components": [scene["component"] for scene in plan["scene_plan"]["scenes"]],
+        },
+        "design_quality": plan["design_quality"],
         "layout_plan": str(layout_path),
         "component_usage": component_usage,
         "prompt": prompt,
@@ -1035,4 +1057,5 @@ def create_pdf(
         "status": "succeeded", "pdf": str(output_path), "layout_plan": str(layout_path),
         "quality_report": str(quality_path), "previews": previews, "pages": len(reader.pages),
         "component_usage": component_usage, "composition": plan["composition"],
+        "scene_plan": plan["scene_plan"]["signature"],
     }

@@ -71,37 +71,39 @@ def measure_presentation_layout(
     block_map = {block["id"]: block for block in blocks}
     requests: list[dict[str, Any]] = []
     card_refs: list[tuple[str, int, str, str]] = []
-    if profile in {"kinetic", "product"}:
-        for slide in plan.get("slides", []):
-            if slide.get("archetype") != "feature-list":
-                continue
-            bullets = [
-                block_map[block_id]
-                for block_id in slide.get("block_ids", [])
-                if block_id in block_map and block_map[block_id]["kind"] == "bullet"
-            ][:6]
-            for index, block in enumerate(bullets):
-                label, detail = _split_feature(block["text"])
-                lead = profile == "kinetic" and index == 0
-                alternate = str(slide.get("variant", "")).endswith("-alternate")
-                width = ((470 if lead else 590) - 64) if profile == "kinetic" else (400 if alternate else 260)
-                label_size = (23 if lead else 19)
-                detail_size = (16 if lead else (12 if profile == "kinetic" else 14))
-                label_key = f"{slide['id']}:card:{index}:label"
-                detail_key = f"{slide['id']}:card:{index}:detail"
-                requests.extend([
-                    {
-                        "key": label_key, "text": label, "width": width,
-                        "fontFamily": display_font, "fontPx": label_size * 96 / 72,
-                        "weight": 700, "lineHeight": 1.18,
-                    },
-                    {
-                        "key": detail_key, "text": detail, "width": width,
-                        "fontFamily": body_font, "fontPx": detail_size * 96 / 72,
-                        "weight": 400, "lineHeight": 1.18,
-                    },
-                ])
-                card_refs.append((slide["id"], index, label_key, detail_key))
+    for slide in plan.get("slides", []):
+        slide_profile = str(slide.get("design_profile") or profile)
+        if slide_profile not in {"kinetic", "product"}:
+            continue
+        if slide.get("archetype") != "feature-list":
+            continue
+        bullets = [
+            block_map[block_id]
+            for block_id in slide.get("block_ids", [])
+            if block_id in block_map and block_map[block_id]["kind"] == "bullet"
+        ][:6]
+        for index, block in enumerate(bullets):
+            label, detail = _split_feature(block["text"])
+            lead = slide_profile == "kinetic" and index == 0
+            alternate = str(slide.get("variant", "")).endswith("-alternate")
+            width = ((470 if lead else 590) - 64) if slide_profile == "kinetic" else (400 if alternate else 260)
+            label_size = (23 if lead else 19)
+            detail_size = (16 if lead else (12 if slide_profile == "kinetic" else 14))
+            label_key = f"{slide['id']}:card:{index}:label"
+            detail_key = f"{slide['id']}:card:{index}:detail"
+            requests.extend([
+                {
+                    "key": label_key, "text": label, "width": width,
+                    "fontFamily": display_font, "fontPx": label_size * 96 / 72,
+                    "weight": 700, "lineHeight": 1.18,
+                },
+                {
+                    "key": detail_key, "text": detail, "width": width,
+                    "fontFamily": body_font, "fontPx": detail_size * 96 / 72,
+                    "weight": 400, "lineHeight": 1.18,
+                },
+            ])
+            card_refs.append((slide["id"], index, label_key, detail_key))
     measured = {item["key"]: item for item in _measure_requests(requests)}
     slides: dict[str, Any] = {}
     for slide_id, index, label_key, detail_key in card_refs:

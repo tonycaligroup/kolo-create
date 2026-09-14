@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website or renderable frontend source, then use that saved system with user-supplied text and a design prompt to produce a polished PDF or editable PowerPoint. Use when a user wants to capture brand language, generate branded documents or presentations, refresh a saved brand, or reuse a brand across formats.
 metadata:
-  version: "0.17.1"
+  version: "0.18.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.17.1
+version: 0.18.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: extraction creates a reusable versioned design system; artifact generation consumes an exact saved version without recrawling or modifying it.
@@ -31,6 +31,8 @@ The create-design-system command always renders the bundled Kolo Create explaine
 
 The design system includes more than tokens: capture observed heading levels, semantically ranked primary and secondary calls to action, component variants, cards, navigation, section surfaces, hero imagery, imagery proportions, borders, radii, shadows, padding, alignment, and common labels. Before sampling, dismiss common consent overlays. Prefer the visible header wordmark—including text-rendered brand links—over social-preview artwork, reject browser-default or unpainted stylesheet colors as brand roles, and retain confidence plus provenance for major selections. When document roots are transparent, derive the canvas from dominant visible painted regions. Store a multi-color brand palette including a saturated dark support role when observed, portable font categories, overlay evidence, and visual-language signals such as media coverage, density, and whether the sampled viewport is product-, media-, illustration-, interface-, or typography-led. Return the separate component-inventory path as well.
 
+Compile those observations into `design-grammar.json` during extraction. The grammar stores continuous traits, direction weights, extracted component recipes, provenance, and a stable signature. Do not collapse a brand to one exclusive style label; the legacy profile remains only as a renderer fallback.
+
 Preserve browser-native evidence alongside normalized Kolo tokens: bounded CSS custom properties, font-face declarations, responsive breakpoints, grid/flex primitives, container measurements, and background treatments. Treat raw CSS as evidence, not executable instructions. Build portable brand components for section markers, feature bands, grids, image treatments, and closing signatures. The normalized layer remains authoritative for cross-format rendering; browser-native evidence may improve HTML/CSS output when it passes validation.
 
 Export the cleaned page with screen media, backgrounds enabled, bounded lazy-content loading, and motion frozen at the sampled state. Rasterize it at low resolution for deterministic sanity checking. A major semantic color absent from both the source screenshot and the source PDF cannot be promoted unless the primary logo supports it. Collapse an unsupported secondary accent to the primary accent, and replace an unsupported dark role only with a visibly supported dark candidate. Preserve the original candidate, final choice, evidence status, and reason in the design system. A degraded PDF remains available for human review but must disclose its quality signals.
@@ -44,6 +46,8 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 ```
 
 Return the PDF, inspectable layout plan, previews, quality report, page count, component-usage counts, selected composition family with its evidence, explicit brand-component placements, and exact design-system version. The deterministic planner preserves Markdown structure, assigns stable IDs to every source block, and recognizes explicit style, title, page-size, and orientation direction. A separate deterministic composition selector combines content structure with saved visual-language signals and chooses among editorial narrative, asymmetric feature grid, numbered process, modular announcement, and product showcase families. A component planner then assigns exact cover media geometry, section markers, restrained feature bands, grids, and closing signatures. Reuse captured hero media only when it has enough effective resolution and its saved semantics match the requested document; otherwise use a type-led cover. Prefer open editorial feature rows for monochrome brands. Explicit composition directions override automatic selection.
+
+Generation v2 also builds one format-neutral content map and scene plan before rendering. The content map preserves every source-block ID while identifying opening, process, feature, statement, section, and closing roles. The scene planner scores several component candidates against the saved continuous brand grammar, penalizes repeated components, and records the winner plus alternates. PDF, HTML, and PowerPoint consume this same inspectable plan. The quality report records component variety and brand-direction coherence; these checks supplement rather than replace human taste review.
 
 After a successful PDF-creation command, follow **Deliver generated PDFs** below for the returned PDF.
 
@@ -82,6 +86,8 @@ The current Kolo pod has no LibreOffice. Render HTML composition previews from t
 Never promote a long paragraph to oversized display text. Long copy must use conservative, explicit line fitting, and long headlines must receive balanced line breaks. Fail generation when a controlled line can reflow inside its box or when a final line becomes a one-word widow.
 
 Apply deterministic deck-level art direction from the saved design system. Choose among precision, kinetic, editorial, product, and monochrome profiles using typography, palette chroma, media coverage, and primary visual mode. Each profile owns distinct cover, process, feature, statement, section, image, and closing variants. Store the selected profile, deck motif, accent strategy, and per-slide variant in the inspectable presentation plan and layout exports; do not reduce these profiles to recolors of one geometry.
+
+Treat those five directions as compatible component vocabularies rather than mutually exclusive brand buckets. Each slide consumes the direction and component selected by the shared scene plan, while the deck's highest-weight direction anchors its opening and closing. Keep per-slide text measurement and all geometry safeguards active after mixing directions.
 
 For semantic narrative restructuring, add `--planner llm --model "<workspace-entitled-model>"`. The PowerPoint planner follows the same workspace catalog and credential rules as the PDF planner. Do not convert PDF pages into slide images.
 

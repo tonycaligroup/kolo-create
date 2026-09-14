@@ -14,7 +14,9 @@ import kolo_design.cli as cli_module
 from kolo_design.assets import select_logo_asset
 from kolo_design.brand_components import build_brand_components, select_component_plan, validate_component_plan
 from kolo_design.composition import select_composition, validate_composition
+from kolo_design.content_map import build_content_map, validate_content_map
 from kolo_design.contracts import validate_design_system
+from kolo_design.design_grammar import compile_design_grammar, validate_design_grammar
 from kolo_design.cli import parser
 from kolo_design.browser_extract import _browser_executable, _trim_transparent_png, _visible_logo
 from kolo_design.html_designer import _document_html, _inline_html, _page_groups, create_html_pdf
@@ -35,6 +37,7 @@ from kolo_design.presentation_planner import DeterministicPresentationPlanner, v
 from kolo_design.presentation_art_direction import apply_presentation_art_direction, presentation_profile
 from kolo_design.presentation_similarity import compare_presentation_layouts, presentation_layout_identity
 from kolo_design.presentation_layout import measure_presentation_layout
+from kolo_design.scene_graph import build_scene_plan, validate_scene_plan
 from kolo_design.presentation_designer import (
     _normalize_presentation_images,
     _safe_presentation_system,
@@ -44,6 +47,49 @@ from kolo_design.presentation_designer import (
 from kolo_design.util import read_json
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def test_design_grammar_compiles_continuous_brand_traits() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    system.setdefault("components", {})["cards"] = {
+        "radius": 18, "shadow": "0 8px 20px rgba(0,0,0,.12)", "observations": 6,
+    }
+    grammar = compile_design_grammar(system)
+    validate_design_grammar(grammar)
+
+    assert grammar["traits"]["curvature"] > 0.5
+    assert grammar["traits"]["surface_layers"] > 0.5
+    assert abs(sum(grammar["direction_weights"].values()) - 1) < 0.001
+    assert grammar["recipes"]["card"]["observations"] == 6
+
+
+def test_scene_plan_preserves_content_and_varies_by_brand_grammar() -> None:
+    content = "# Title\n\nIntro copy.\n\n## Features\n\n- First benefit\n- Second benefit\n\n## Finish\n\n[Continue](https://example.com)"
+    blocks = source_blocks(content)
+    content_map = build_content_map(blocks, "Create a concise presentation")
+    validate_content_map(content_map, blocks)
+
+    product_system = read_json(FIXTURES / "design-system.json")
+    product_system["visual_language"] = {"primary_mode": "product-led", "density": "sparse", "media_coverage": 0.4}
+    product_system.setdefault("components", {})["cards"] = {"radius": 20, "shadow": "0 8px 20px #0003", "observations": 8}
+    monochrome_system = read_json(FIXTURES / "design-system.json")
+    monochrome_system["tokens"]["colors"].update({"accent": "#111111", "accent_secondary": "#222222"})
+    monochrome_system["visual_language"] = {"primary_mode": "typography-led", "density": "sparse", "media_coverage": 0.0}
+
+    product = build_scene_plan(
+        compile_design_grammar(product_system), content_map,
+        format_name="presentation", brand_id="product",
+    )
+    monochrome = build_scene_plan(
+        compile_design_grammar(monochrome_system), content_map,
+        format_name="presentation", brand_id="monochrome",
+    )
+    validate_scene_plan(product, blocks)
+    validate_scene_plan(monochrome, blocks)
+
+    assert product["signature"] != monochrome["signature"]
+    assert [scene["component"] for scene in product["scenes"]] != [scene["component"] for scene in monochrome["scenes"]]
+    assert all(len(scene["alternates"]) == 2 for scene in product["scenes"])
 
 
 def test_fixture_system_is_valid() -> None:

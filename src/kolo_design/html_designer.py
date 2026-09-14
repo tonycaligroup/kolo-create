@@ -19,7 +19,10 @@ from .browser_extract import _browser_executable
 from .assets import select_logo_asset
 from .brand_components import select_component_plan, validate_component_plan
 from .composition import select_composition, validate_composition
+from .content_map import build_content_map, validate_content_map
 from .contracts import validate_design_system, validate_document_request
+from .design_grammar import compile_design_grammar, validate_design_grammar
+from .design_quality import evaluate_design_plan
 from .pdf_designer import (
     TOFU_MARKERS,
     _brand_dark,
@@ -32,6 +35,7 @@ from .pdf_designer import (
     create_pdf,
 )
 from .planner import DeterministicPlanner, DocumentPlanner, source_blocks, validate_plan
+from .scene_graph import build_scene_plan, validate_scene_plan
 from .util import atomic_write, confined, read_json, sha256_bytes, write_json
 
 
@@ -355,6 +359,15 @@ def create_html_pdf(
     removed_emoji_count += title_removed + subtitle_removed
     plan["composition"] = select_composition(system, plan, blocks, prompt)
     validate_composition(plan["composition"])
+    plan["design_grammar"] = system.get("design_grammar") or compile_design_grammar(system)
+    validate_design_grammar(plan["design_grammar"])
+    plan["content_map"] = build_content_map(blocks, prompt)
+    validate_content_map(plan["content_map"], blocks)
+    plan["scene_plan"] = build_scene_plan(
+        plan["design_grammar"], plan["content_map"], format_name="document", brand_id=system["id"]
+    )
+    validate_scene_plan(plan["scene_plan"], blocks)
+    plan["design_quality"] = evaluate_design_plan(plan["design_grammar"], plan["scene_plan"])
     plan["component_plan"] = select_component_plan(system, plan, blocks, prompt)
     validate_component_plan(plan["component_plan"])
     markup, component_usage = _document_html(system, plan, blocks)
@@ -445,6 +458,15 @@ def create_html_pdf(
         "renderer": "html-css/1",
         "planner": planner.version,
         "design_system": {"id": system["id"], "version": system["version"], "path": str(design_system_path.resolve())},
+        "design_grammar": {
+            "signature": plan["design_grammar"]["signature"],
+            "ranked_directions": plan["design_grammar"]["ranked_directions"],
+        },
+        "scene_plan": {
+            "signature": plan["scene_plan"]["signature"],
+            "components": [scene["component"] for scene in plan["scene_plan"]["scenes"]],
+        },
+        "design_quality": plan["design_quality"],
         "prompt": prompt,
         "pdf": {"path": str(output_path), "sha256": sha256_bytes(payload), "bytes": len(payload), "pages": len(reader.pages)},
         "html": {"path": str(html_path), "sha256": sha256_bytes(markup.encode("utf-8"))},
@@ -456,6 +478,7 @@ def create_html_pdf(
         "status": "succeeded", "renderer": "html-css/1", "pdf": str(output_path), "html": str(html_path),
         "layout_plan": str(layout_path), "quality_report": str(quality_path), "previews": previews,
         "pages": len(reader.pages), "component_usage": component_usage, "composition": plan["composition"],
+        "scene_plan": plan["scene_plan"]["signature"],
     }
 
 

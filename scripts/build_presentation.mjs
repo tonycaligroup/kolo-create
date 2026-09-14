@@ -237,13 +237,14 @@ const media = (system.assets || []).filter((asset) => asset.kind === "hero-image
 let mediaIndex = 0;
 for (let index = 0; index < spec.plan.slides.length; index++) {
   const planSlide = spec.plan.slides[index];
+  const designProfile = planSlide.design_profile || profile;
   const body = contentOnly(slideBlocks(planSlide));
   const slide = pptx.addSlide();
   prepareSlide(slide, background);
 
   if (planSlide.archetype === "cover") {
     const useMedia = media.length > 0 && (system.visual_language?.media_coverage || 0) >= .15;
-    if (profile === "editorial") {
+    if (designProfile === "editorial") {
       const field = contrast(accent, palette.text) >= 4.5 ? accent : background;
       const onField = readable(field, palette.text);
       prepareSlide(slide, field);
@@ -252,7 +253,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addText(slide, balancedHeadline(planSlide.title), 72, 150, 940, 210, 60, onField, { bold: true, name: "title" });
       addRule(slide, 72, 405, 1080, onField, 2);
       addText(slide, planSlide.subtitle, 420, 456, 730, 140, 21, onField, { body: true, bold: false, name: "subtitle", vertical: "top" });
-    } else if (profile === "product") {
+    } else if (designProfile === "product") {
       prepareSlide(slide, surface);
       addRect(slide, 0, 0, 34, 720, accent);
       addBrandMark(slide, { left: 76, top: 42, width: 190, height: 54 }, surface, { color: secondary, name: "brand-label" });
@@ -264,7 +265,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, "DESIGN\nSYSTEM", 770, 200, 360, 160, 34, secondary, { bold: true });
         addRule(slide, 770, 410, 260, accent, 14);
       }
-    } else if (profile === "monochrome") {
+    } else if (designProfile === "monochrome") {
       const field = dark;
       const onField = readable(field, "#FFFFFF");
       prepareSlide(slide, field);
@@ -276,7 +277,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addOutline(slide, 742, 102, 424, 474, onField, 2);
         await addImage(slide, media[mediaIndex++], { left: 758, top: 118, width: 392, height: 442 }, `${system.name} brand imagery`);
       }
-    } else if (profile === "kinetic" && useMedia) {
+    } else if (designProfile === "kinetic" && useMedia) {
       await addImage(slide, media[mediaIndex++], { left: 700, top: 0, width: 580, height: 720 }, `${system.name} brand imagery`);
       addBrandMark(slide, { left: 72, top: 44, width: 200, height: 56 }, background, { color: accent, name: "brand-label", contrastField: false });
       addText(slide, planSlide.title, 72, 140, 560, 210, 48, ink, { bold: true, name: "title" });
@@ -294,8 +295,8 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
   } else if (planSlide.archetype === "process") {
     const bullets = body.filter((block) => block.kind === "bullet").slice(0, 4);
     const intro = body.find((block) => block.kind === "paragraph");
-    addText(slide, planSlide.title, 72, 54, 1120, 72, profile === "editorial" ? 38 : 34, ink, { bold: true, name: "title" });
-    if (profile === "editorial") {
+    addText(slide, planSlide.title, 72, 54, 1120, 72, designProfile === "editorial" ? 38 : 34, ink, { bold: true, name: "title" });
+    if (designProfile === "editorial") {
       if (intro) addText(slide, intro.text, 72, 150, 420, 180, 18, ink, { body: true, vertical: "top" });
       addRule(slide, 540, 150, 3, accent, 430);
       bullets.forEach((block, itemIndex) => {
@@ -304,7 +305,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, label, 670, y, 470, 42, 23, ink, { bold: true, vertical: "top" });
         addText(slide, detail, 670, y + 48, 470, 68, 15, ink, { body: true, vertical: "top" });
       });
-    } else if (profile === "product") {
+    } else if (designProfile === "product") {
       if (intro) addText(slide, intro.text, 72, 142, 1000, 78, 17, ink, { body: true, vertical: "top" });
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text); const x = 72 + itemIndex * 365;
@@ -314,7 +315,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, label, x + 24, 350, 280, 80, 22, ink, { bold: true, vertical: "top" });
         addText(slide, detail, x + 24, 446, 280, 88, 15, ink, { body: true, vertical: "top" });
       });
-    } else if (profile === "kinetic") {
+    } else if (designProfile === "kinetic") {
       addRect(slide, 0, 142, 1280, 112, dark);
       if (intro) addText(slide, intro.text, 72, 162, 1080, 72, 18, readable(dark, "#FFFFFF"), { body: true, vertical: "top" });
       bullets.forEach((block, itemIndex) => {
@@ -323,7 +324,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, label, x, 370, 315, 72, 22, ink, { bold: true, vertical: "top" });
         addText(slide, detail, x, 466, 315, 90, 15, ink, { body: true, vertical: "top" });
       });
-    } else if (profile === "monochrome") {
+    } else if (designProfile === "monochrome") {
       if (intro) addText(slide, intro.text, 72, 142, 1030, 80, 17, ink, { body: true, vertical: "top" });
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text); const x = 72 + itemIndex * 372;
@@ -346,13 +347,13 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
     }
     addFooter(slide, index + 1);
   } else if (planSlide.archetype === "feature-list") {
-    if (profile === "kinetic") prepareSlide(slide, surface);
+    if (designProfile === "kinetic") prepareSlide(slide, surface);
     addText(slide, planSlide.title, 72, 54, 1120, 72, 34, ink, { bold: true, name: "title" });
     const intro = body.find((block) => block.kind === "paragraph");
     if (intro) addText(slide, intro.text, 72, 145, 1080, 76, 18, ink, { body: true, bold: false });
     const bullets = body.filter((block) => block.kind === "bullet").slice(0, 6);
     const alternate = planSlide.variant?.endsWith("-alternate");
-    if (alternate && profile === "precision") {
+    if (alternate && designProfile === "precision") {
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text); const y = 238 + itemIndex * 86;
         addText(slide, `0${itemIndex + 1}`, 72, y, 52, 30, 13, accent, { body: true, bold: true });
@@ -360,7 +361,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, detail, 540, y, 590, 48, 14, ink, { body: true, vertical: "top" });
         addRule(slide, 160, y + 58, 970, accent, 2);
       });
-    } else if (alternate && ["editorial", "product"].includes(profile)) {
+    } else if (alternate && ["editorial", "product"].includes(designProfile)) {
       const measuredCards = new Map(
         (spec.plan.layout_measurements?.slides?.[planSlide.id]?.cards || [])
           .map(card => [Number(card.index), card])
@@ -379,18 +380,18 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text); const column = itemIndex % 2, row = Math.floor(itemIndex / 2);
         const layout = productLayouts[itemIndex];
-        const x = 72 + column * 570, y = profile === "product" ? rowTops[row] : 242 + row * 158;
-        const height = profile === "product" ? layout.height : 132;
-        if (profile === "product") addRect(slide, x, y, 520, height, surface, 14, null, { name: `feature-card-${itemIndex + 1}` });
+        const x = 72 + column * 570, y = designProfile === "product" ? rowTops[row] : 242 + row * 158;
+        const height = designProfile === "product" ? layout.height : 132;
+        if (designProfile === "product") addRect(slide, x, y, 520, height, surface, 14, null, { name: `feature-card-${itemIndex + 1}` });
         else addOutline(slide, x, y, 520, height, accent, 2);
         addText(slide, `0${itemIndex + 1}`, x + 20, y + 18, 48, 28, 12, secondary, { body: true, bold: true });
-        addText(slide, label, x + 82, y + 18, 400, profile === "product" ? layout.labelHeight : 34, 19, ink,
-          { bold: true, vertical: "top", name: profile === "product" ? `feature-card-title-${itemIndex + 1}` : undefined });
-        addText(slide, detail, x + 82, y + (profile === "product" ? layout.detailOffset : 62), 400,
-          profile === "product" ? layout.detailHeight : 50, 14, ink,
-          { body: true, vertical: "top", name: profile === "product" ? `feature-card-copy-${itemIndex + 1}` : undefined });
+        addText(slide, label, x + 82, y + 18, 400, designProfile === "product" ? layout.labelHeight : 34, 19, ink,
+          { bold: true, vertical: "top", name: designProfile === "product" ? `feature-card-title-${itemIndex + 1}` : undefined });
+        addText(slide, detail, x + 82, y + (designProfile === "product" ? layout.detailOffset : 62), 400,
+          designProfile === "product" ? layout.detailHeight : 50, 14, ink,
+          { body: true, vertical: "top", name: designProfile === "product" ? `feature-card-copy-${itemIndex + 1}` : undefined });
       });
-    } else if (profile === "editorial") {
+    } else if (designProfile === "editorial") {
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text); const y = 246 + itemIndex * 94;
         addText(slide, `0${itemIndex + 1}`, 72, y, 52, 32, 14, secondary, { body: true, bold: true });
@@ -398,7 +399,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, detail, 520, y, 610, 52, 15, ink, { body: true, vertical: "top" });
         addRule(slide, 160, y + 66, 970, itemIndex % 2 ? secondary : accent, 2);
       });
-    } else if (profile === "product") {
+    } else if (designProfile === "product") {
       const measuredCards = new Map(
         (spec.plan.layout_measurements?.slides?.[planSlide.id]?.cards || [])
           .map(card => [Number(card.index), card])
@@ -424,7 +425,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, detail, x + 40, y + layout.detailOffset, 260, layout.detailHeight, 14, ink,
           { body: true, vertical: "top", name: `feature-card-copy-${itemIndex + 1}` });
       });
-    } else if (profile === "kinetic" && bullets.length >= 3) {
+    } else if (designProfile === "kinetic" && bullets.length >= 3) {
       const measuredCards = new Map(
         (planSlide && spec.plan.layout_measurements?.slides?.[planSlide.id]?.cards || [])
           .map(card => [Number(card.index), card])
@@ -475,13 +476,13 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
           { body: true, vertical: "top", name: `feature-card-copy-${itemIndex + 1}` });
         if (!lead) smallTop += height + smallGap;
       });
-    } else if (profile === "monochrome") {
+    } else if (designProfile === "monochrome") {
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text); const column = itemIndex % 2, row = Math.floor(itemIndex / 2);
-        const x = 72 + column * 570, y = 246 + row * 138; const fill = (itemIndex + row + (alternate ? 1 : 0)) % 2 ? dark : background; const color = readable(fill, ink);
-        if (fill === background) addOutline(slide, x, y, 520, 112, ink, 2); else addRect(slide, x, y, 520, 112, fill);
-        addText(slide, label, x + 22, y + 18, 230, 36, 19, color, { bold: true, vertical: "top" });
-        addText(slide, detail, x + 250, y + 18, 245, 70, 14, color, { body: true, vertical: "top" });
+        const x = 72 + column * 570, y = 246 + row * 150; const fill = (itemIndex + row + (alternate ? 1 : 0)) % 2 ? dark : background; const color = readable(fill, ink);
+        if (fill === background) addOutline(slide, x, y, 520, 126, ink, 2); else addRect(slide, x, y, 520, 126, fill);
+        addText(slide, label, x + 28, y + 20, 464, 34, 18, color, { bold: true, vertical: "top" });
+        addText(slide, detail, x + 28, y + 66, 464, 42, 13, color, { body: true, vertical: "top" });
       });
     } else {
       bullets.forEach((block, itemIndex) => {
@@ -497,7 +498,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
   } else if (planSlide.archetype === "statement") {
     const statement = body.find((block) => block.kind === "callout") || body[0];
     const remainder = body.filter((block) => block !== statement).map((block) => clean(block.text)).join("\n\n");
-    if (profile === "editorial") {
+    if (designProfile === "editorial") {
       const field = contrast(accent, palette.text) >= 4.5 ? accent : background; const onField = readable(field, palette.text);
       prepareSlide(slide, field);
       addBrandMark(slide, { left: 72, top: 44, width: 190, height: 52 }, field, { color: onField, name: "brand-label" });
@@ -506,7 +507,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addRule(slide, 900, 220, 250, onField, 2, { name: "supporting-rule" });
       addText(slide, remainder, 900, 250, 250, 246, 15, onField, { body: true, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1, onField);
-    } else if (profile === "product") {
+    } else if (designProfile === "product") {
       addText(slide, planSlide.title, 72, 58, 1060, 90, 40, ink, { bold: true, name: "title" });
       addRect(slide, 72, 188, 1110, 386, surface, 18);
       addRect(slide, 72, 188, 26, 386, accent, 12);
@@ -514,14 +515,14 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addRule(slide, 830, 210, 290, secondary, 4, { name: "supporting-rule" });
       addText(slide, remainder, 830, 238, 290, 246, 15, ink, { body: true, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1);
-    } else if (profile === "monochrome") {
+    } else if (designProfile === "monochrome") {
       const field = dark; const onField = readable(field, "#FFFFFF"); prepareSlide(slide, field);
       addText(slide, planSlide.title, 72, 62, 1040, 96, 42, onField, { bold: true, name: "title" });
       addOutline(slide, 72, 190, 1110, 390, onField, 2);
       addText(slide, statement?.text || "", 112, 232, 650, 270, 21, onField, { body: true, bold: true, vertical: "top", name: "primary-copy" });
       addText(slide, remainder, 840, 232, 290, 268, 15, onField, { body: true, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1, onField);
-    } else if (profile === "kinetic") {
+    } else if (designProfile === "kinetic") {
       addRect(slide, 0, 0, 330, 720, dark);
       addText(slide, "05", 68, 80, 190, 110, 62, accent, { body: true, bold: true });
       addText(slide, planSlide.title, 390, 58, 800, 96, 42, ink, { bold: true, name: "title" });
@@ -540,7 +541,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
   } else if (planSlide.archetype === "closing") {
     const copy = body.filter((block) => block.kind !== "action").map((block) => clean(block.text)).join("\n\n");
     const action = body.find((block) => block.kind === "action");
-    if (profile === "kinetic") {
+    if (designProfile === "kinetic") {
       // Close the way the kinetic cover opens: light editorial copy beside a bold field.
       // This also lets dark native marks sit directly on the page instead of inside a
       // conspicuous contrast patch.
@@ -565,27 +566,27 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addText(slide, "EVOLVE", 918, 366, 285, 58, 25, onDark, { body: true, bold: true });
       addText(slide, "06", 918, 578, 250, 72, 42, accent, { body: true, bold: true });
     } else {
-      const field = profile === "editorial" && contrast(accent, palette.text) >= 4.5 ? accent
-        : profile === "product" && contrast(secondary, "#FFFFFF") >= 4.5 ? secondary : dark;
+      const field = designProfile === "editorial" && contrast(accent, palette.text) >= 4.5 ? accent
+        : designProfile === "product" && contrast(secondary, "#FFFFFF") >= 4.5 ? secondary : dark;
       const onField = readable(field, palette.background);
       prepareSlide(slide, field);
-      if (profile === "product") {
+      if (designProfile === "product") {
         addRect(slide, 0, 0, 28, 720, accent);
         addRect(slide, 1000, 64, 200, 112, accent, 12);
         addText(slide, "READY", 1020, 84, 160, 70, 24, readable(accent, palette.text), { body: true, bold: true, align: "center" });
-      } else if (profile === "editorial") {
+      } else if (designProfile === "editorial") {
         addText(slide, "FIN", 1050, 50, 140, 52, 28, secondary, { body: true, bold: true, align: "right" });
         addRule(slide, 72, 112, 1070, onField, 2);
-      } else if (profile === "monochrome") {
+      } else if (designProfile === "monochrome") {
         addOutline(slide, 48, 42, 1184, 636, onField, 2);
       }
-      const left = profile === "monochrome" ? 82 : 72;
+      const left = designProfile === "monochrome" ? 82 : 72;
       addBrandMark(slide, { left, top: 48, width: 210, height: 58 }, field,
-        { color: profile === "editorial" ? onField : accent, name: "brand-label" });
-      addText(slide, balancedHeadline(planSlide.title), left, 150, profile === "product" ? 850 : 1040, 190, 44, onField, { bold: true, name: "title" });
+        { color: designProfile === "editorial" ? onField : accent, name: "brand-label" });
+      addText(slide, balancedHeadline(planSlide.title), left, 150, designProfile === "product" ? 850 : 1040, 190, 44, onField, { bold: true, name: "title" });
       addText(slide, copy, left, 348, 850, 128, 21, onField, { body: true, bold: false, vertical: "top", name: "closing-copy" });
       if (action) {
-        addRule(slide, left, 552, 420, profile === "editorial" ? onField : accent, 5);
+        addRule(slide, left, 552, 420, designProfile === "editorial" ? onField : accent, 5);
         addText(slide, action.text, left, 574, 600, 44, 18, onField, { body: true, bold: true });
       }
     }

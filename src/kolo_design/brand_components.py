@@ -208,6 +208,18 @@ def select_component_plan(
     feature_band_used = False
     sections: list[dict[str, Any]] = []
     layout_sections = plan["layout"]["sections"]
+    scene_plan = plan.get("scene_plan") or {}
+    scenes = scene_plan.get("scenes") or []
+
+    def scene_component(block_ids: list[str]) -> str | None:
+        owned = set(block_ids)
+        ranked = [
+            (len(owned & set(scene.get("block_ids") or [])), str(scene.get("component", "")))
+            for scene in scenes
+        ]
+        score, component = max(ranked, default=(0, ""))
+        return component if score else None
+
     composition_family = (plan.get("composition") or {}).get("family")
     for index, section in enumerate(layout_sections):
         section_blocks = [by_id[block_id] for block_id in section["block_ids"]]
@@ -215,22 +227,29 @@ def select_component_plan(
         closing = index == len(layout_sections) - 1 and any(block["kind"] == "action" for block in section_blocks)
         components = ["section-marker"] if any(block["kind"].startswith("heading") for block in section_blocks) else []
         treatment = "standard"
+        selected_scene_component = scene_component(section["block_ids"])
         if closing:
             components.append("closing-signature")
             treatment = "closing-signature"
         elif bullet_count >= 2:
             cell_style = recipes["numbered-feature-grid"].get("cell_style", "card")
-            if cell_style == "open" or composition_family == "editorial_narrative":
+            if selected_scene_component == "open-feature-list" or cell_style == "open" or composition_family == "editorial_narrative":
                 components.append("editorial-feature-list")
                 treatment = "editorial-feature-list"
             else:
                 components.append("numbered-feature-grid")
                 treatment = "feature-grid"
-            if not feature_band_used and cell_style != "open" and composition_family != "editorial_narrative":
+            if (
+                selected_scene_component in {None, "asymmetric-mosaic", "product-shelf"}
+                and not feature_band_used and cell_style != "open" and composition_family != "editorial_narrative"
+            ):
                 components.append("feature-band")
                 treatment = "feature-band"
                 feature_band_used = True
-        sections.append({"section_id": section["id"], "components": components, "treatment": treatment})
+        sections.append({
+            "section_id": section["id"], "components": components, "treatment": treatment,
+            "scene_component": selected_scene_component,
+        })
     minimum_density = float(recipes["media-band"]["minimum_density"])
     context = " ".join([prompt, str(plan.get("title", "")), str(plan.get("subtitle", "")), *(block["text"] for block in blocks[:12])])
     explicit_image_prompt = bool(re.search(r"\b(image|photo|photographic|showcase|visual)\b", prompt, re.I))

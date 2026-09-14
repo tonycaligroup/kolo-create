@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from PIL import Image
 
 from .brand_components import build_brand_components
+from .design_grammar import compile_design_grammar
 from .browser_extract import browser_snapshot
 from .extractor import _choose_colors, extract_brand
 from .util import sha256_bytes, write_json
@@ -200,8 +201,10 @@ def _copy_source_assets(root: Path, system_path: Path) -> int:
         existing_hashes.add(digest)
         added += 1
     system["brand_components"] = build_brand_components(system)
+    system["design_grammar"] = compile_design_grammar(system)
     write_json(system_path, system)
     write_json(system_path.parent / "brand-components.json", system["brand_components"])
+    write_json(system_path.parent / "design-grammar.json", system["design_grammar"])
     write_json(system_path.parent.parent / "latest.json", system)
     return added
 

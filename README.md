@@ -49,7 +49,9 @@ PptxGenJS currently brings an `image-size` advisory affecting ICNS, JXL, and HEI
 
 Presentation typography is copy-aware: long paragraphs cannot become oversized display walls, long headlines receive balanced breaks, and conservative line-length checks reject layouts likely to create one-word widows when Office reflows the text.
 
-Decks also receive deterministic art direction from the saved design system. Precision, kinetic, editorial, product, and monochrome profiles each use their own cover, process, feature, statement, and closing compositions, with the selected profile and per-slide variants preserved in the presentation plan and layout exports.
+Generation v2 compiles the extracted evidence into a signed, format-neutral design grammar. Instead of assigning a brand to one exclusive style bucket, it records continuous traits for color energy, media intensity, whitespace, curvature, surface layering, typographic contrast, asymmetry, product focus, and monochrome restraint. Precision, kinetic, editorial, product, and monochrome remain reusable component vocabularies whose weights can be blended within one coherent document.
+
+Every generation builds the same content map and candidate scene plan before PDF, HTML, or PowerPoint rendering. Each source group receives a semantic role; several compatible components are scored for content fit, brand fit, and repetition; and the selected component plus alternates is stored in the layout artifact. PowerPoint uses the scene's selected direction per slide while the strongest overall direction anchors the opening and closing. This preserves the existing reliable renderers while removing their independent, coarse composition decisions.
 
 Each deck quality report also includes a content-independent layout identity. Comparing those identities flags near-identical archetype and geometry selections across brands before look-alike decks are accepted. Media-led decks close with the same light-copy/bold-field language used on their covers, avoiding isolated logo patches on the final slide.
 
@@ -109,5 +111,7 @@ The model receives bounded source blocks and may only arrange their IDs into sup
 uv run python scripts/readiness.py
 uv run --extra dev pytest -q
 ```
+
+Build a no-model, multi-brand and multi-document planning regression manifest with `scripts/generation_regression.py`. Supply repeated `--system NAME=PATH` and `--content NAME=PATH` arguments; the output records grammar signatures, component sequences, direction sequences, quality checks, and pairwise similarity for both document and presentation plans.
 
 See [INSTALL-KOLO.md](INSTALL-KOLO.md) for the expected Kolo workspace layout.
