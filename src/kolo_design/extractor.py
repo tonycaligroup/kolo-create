@@ -23,6 +23,7 @@ from .design_grammar import compile_design_grammar
 from .contracts import validate_design_system
 from .network import MAX_ASSET_BYTES, MAX_HTML_BYTES, FetchError, fetch_limited
 from .reference_evidence import analyze_reference_pdf, reconcile_reference_colors
+from .source_fidelity import SourceFidelityError, ensure_source_fidelity
 from .util import atomic_write, sha256_bytes, slugify, write_json
 
 COLOR_PATTERN = re.compile(
@@ -739,7 +740,24 @@ def _save_best_logo(
     soup: BeautifulSoup, base_url: str, asset_dir: Path, rendered: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     saved: list[dict[str, Any]] = []
-    visible_logo = (rendered or {}).get("visible_logo") or {}
+    captured_logo = next(
+        (item for item in (rendered or {}).get("captured_assets", []) if item.get("kind") == "logo"),
+        None,
+    )
+    if captured_logo and isinstance(captured_logo.get("payload"), bytes):
+        payload = captured_logo["payload"]
+        suffix = str(captured_logo.get("path") or ".png").lower()
+        suffix = Path(suffix).suffix if Path(suffix).suffix in {".png", ".jpg", ".jpeg", ".webp"} else ".png"
+        target = asset_dir / f"logo-visible{suffix}"
+        atomic_write(target, payload)
+        saved.append({
+            "id": "visible-logo-capture", "kind": "logo", "path": str(target),
+            "source_url": captured_logo.get("source_url") or base_url,
+            "source": "kolo-visible-browser-capture", "score": 250,
+            "confidence": 0.98, "provenance": "captured from the authenticated visible browser",
+            "sha256": sha256_bytes(payload), "media_type": captured_logo.get("media_type", "image/png"),
+        })
+    visible_logo = {} if captured_logo else (rendered or {}).get("visible_logo") or {}
     if isinstance(visible_logo.get("png"), bytes):
         payload = visible_logo["png"]
         target = asset_dir / "logo-visible.png"
@@ -835,6 +853,36 @@ def _save_best_logo(
 def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: int = 6) -> list[dict[str, Any]]:
     if not rendered:
         return []
+    captured: list[dict[str, Any]] = []
+    for item in rendered.get("captured_assets", []):
+        if item.get("kind") != "hero-image" or not isinstance(item.get("payload"), bytes):
+            continue
+        payload = item["payload"]
+        suffix = Path(str(item.get("path") or ".png")).suffix.lower()
+        if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+            suffix = ".png"
+        target = asset_dir / f"hero-{len(captured) + 1}{suffix}"
+        atomic_write(target, payload)
+        dimensions = raster_dimensions(target)
+        if not dimensions:
+            target.unlink(missing_ok=True)
+            continue
+        width, height = dimensions
+        semantic_text = f"{item.get('alt', '')} {item.get('text_sample', '')}".strip()
+        captured.append({
+            "id": f"hero-{len(captured) + 1}", "kind": "hero-image", "path": str(target),
+            "source_url": item.get("source_url") or rendered.get("url"),
+            "source": "kolo-visible-browser-capture", "score": float(item.get("score", 100)),
+            "confidence": 0.98, "provenance": "captured from the authenticated visible browser",
+            "sha256": sha256_bytes(payload), "media_type": item.get("media_type", "image/png"),
+            "alt": str(item.get("alt", ""))[:240], "text_sample": str(item.get("text_sample", ""))[:240],
+            "role": str(item.get("role", "main")),
+            "keywords": sorted({word.lower() for word in re.findall(r"[A-Za-z0-9]+", semantic_text) if len(word) >= 3})[:20],
+            "pixel_width": width, "pixel_height": height, "aspect_ratio": round(width / max(1, height), 3),
+            "orientation": "landscape" if width >= height * 1.2 else "portrait" if height >= width * 1.2 else "square",
+        })
+        if len(captured) >= limit:
+            return captured
     ranked: list[tuple[float, str, dict[str, Any]]] = []
     for element in rendered.get("elements", []):
         if not _in_primary_view(element):
@@ -850,7 +898,7 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
         for value in urls:
             if value.startswith(("http://", "https://")):
                 ranked.append((area, value, element))
-    saved: list[dict[str, Any]] = []
+    saved: list[dict[str, Any]] = list(captured)
     seen: set[str] = set()
     for area, url, element in sorted(ranked, key=lambda item: item[0], reverse=True):
         if url in seen:
@@ -966,19 +1014,31 @@ def extract_brand(
     source_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rendered = rendered_override
+    fidelity_report: dict[str, Any] | None = None
     if rendered is None:
         try:
             candidate = browser_snapshot(url)
-            if candidate and (candidate.get("response_status") is None or int(candidate["response_status"]) < 400):
+            if candidate:
+                fidelity_report = ensure_source_fidelity(candidate)
                 rendered = candidate
+        except SourceFidelityError:
+            raise
         except Exception:
             rendered = None
     if rendered:
+        fidelity_report = ensure_source_fidelity(rendered)
         final_url = rendered["url"]
         html_bytes = rendered["html"].encode("utf-8")
         content_type = "text/html; source=browser"
     else:
         final_url, html_bytes, content_type = fetch_limited(url, MAX_HTML_BYTES, accept="text/html,application/xhtml+xml")
+        fidelity_report = ensure_source_fidelity({
+            "url": final_url,
+            "title": "",
+            "html": html_bytes.decode("utf-8", errors="replace"),
+            "elements": [],
+            "response_status": 200,
+        })
     if "html" not in content_type and b"<html" not in html_bytes[:2000].lower():
         raise FetchError("The supplied URL did not return an HTML page")
     soup = BeautifulSoup(html_bytes, "html.parser")
@@ -1117,6 +1177,11 @@ def extract_brand(
                 "overlays_dismissed": (rendered.get("overlay_actions") or {}) if rendered else {},
                 "source_webpage_pdf": bool(reference_pdf_path),
                 "source_webpage_pdf_status": reference_evidence.get("status"),
+                "source_fidelity_status": (fidelity_report or {}).get("status", "pass"),
+            },
+            "source_fidelity": fidelity_report or {
+                "schema": "kolo.source-fidelity/v1", "status": "pass", "usable": True,
+                "reasons": [], "signals": {"mode": "bounded-static-html"},
             },
             "selection": {
                 "colors": {

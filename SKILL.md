@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website or renderable frontend source, then use that saved system with user-supplied text and a design prompt to produce a polished PDF or editable PowerPoint. Use when a user wants to capture brand language, generate branded documents or presentations, refresh a saved brand, or reuse a brand across formats.
 metadata:
-  version: "0.18.2"
+  version: "0.19.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.18.2
+version: 0.19.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: extraction creates a reusable versioned design system; artifact generation consumes an exact saved version without recrawling or modifying it.
@@ -22,6 +22,10 @@ When the user supplies a public website, run:
 ```sh
 uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-design create design-system --url "<public website>" --name "<brand name>" --workspace "/home/node/.openclaw/kolo-create-data"
 ```
+
+Before accepting any website capture, apply the deterministic source-fidelity gate. An HTTP 200 response is not sufficient: reject access-denied pages, request blocks, CAPTCHAs, security challenges, service errors, and captures with too little rendered evidence. Never infer a brand from an error page or silently continue with generic tokens.
+
+If the command returns `browser_evidence_required`, use Kolo's existing visible shared Chromium session and follow [the visible-browser evidence fallback](references/browser-evidence.md). This fallback is deterministic and makes no model calls. Capture DOM, computed styles, element geometry, viewport screenshot, browser PDF, visible logo, and important hero media from one stable page state, then rerun with `--browser-evidence`. Keep `--source-archive` reserved for frontend source ZIPs; browser evidence has its own input.
 
 For frontend source, replace `--url` with exactly one of `--repo-url "https://github.com/org/public-repo"`, `--source-dir "/path/to/source"`, or `--source-archive "/path/to/source.zip"`. Prefer an existing static entry (`index.html`, `dist`, `build`, `out`, `public`, or `storybook-static`). If none exists, render a deterministic source-derived component specimen and clearly disclose that route fidelity is unverified. Never execute package scripts, framework servers, or backend code.
 
@@ -118,7 +122,7 @@ Do not use a plain `MEDIA:` directive: Kolo does not reliably render it as a cha
 ## Safety and quality boundaries
 
 - Accept public HTTP(S) websites only; validate every redirect and cap every response while streaming. Source ingestion separately accepts a local directory, bounded ZIP, or public HTTPS GitHub repository.
-- If both browser and bounded HTTP retrieval fail, return the focused access question and recommend one alternate public landing-page URL; do not loop over guessed paths.
+- If automated capture fails the fidelity gate, use the visible-browser evidence fallback once. If imported evidence also fails, return one focused question asking for a Chrome capture ZIP or another public landing page; do not loop over guessed paths.
 - Block private, loopback, link-local, and metadata addresses.
 - Prefer browser-rendered computed styles and use bounded static extraction as fallback; report which mode ran.
 - Use Kolo's `logo-scraper` when installed and retain bounded HTML logo discovery as fallback.

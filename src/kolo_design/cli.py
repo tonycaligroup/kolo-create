@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from .browser_evidence import load_browser_evidence
 from .extractor import extract_brand
 from .html_designer import compare_pdf_renderers, create_html_pdf
 from .network import FetchError
@@ -13,6 +14,7 @@ from .planner import DeterministicPlanner, OpenAICompatiblePlanner
 from .presentation_designer import create_presentation
 from .presentation_planner import DeterministicPresentationPlanner, OpenAICompatiblePresentationPlanner
 from .source_extract import extract_source_brand
+from .source_fidelity import SourceFidelityError
 
 
 def parser() -> argparse.ArgumentParser:
@@ -26,6 +28,10 @@ def parser() -> argparse.ArgumentParser:
     source.add_argument("--repo-url", help="Public HTTPS GitHub repository URL")
     source.add_argument("--source-dir", type=Path, help="Local frontend source directory")
     source.add_argument("--source-archive", type=Path, help="Local ZIP containing frontend source")
+    source.add_argument(
+        "--browser-evidence", type=Path,
+        help="Kolo visible-browser evidence directory or bounded ZIP",
+    )
     design_system.add_argument("--workspace", type=Path, required=True)
     design_system.add_argument("--name")
     design_system.add_argument(
@@ -76,6 +82,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "create":
             if args.url:
                 result = extract_brand(args.url, args.workspace, args.name)
+            elif args.browser_evidence:
+                rendered, metadata = load_browser_evidence(args.browser_evidence)
+                result = extract_brand(
+                    rendered["url"], args.workspace, args.name,
+                    rendered_override=rendered, source_metadata=metadata,
+                )
             else:
                 result = extract_source_brand(
                     args.workspace, args.name, source_dir=args.source_dir,
@@ -126,6 +138,16 @@ def main(argv: list[str] | None = None) -> int:
                 result = create_pdf(args.system, args.content, args.prompt, args.output, planner_impl)
         print(json.dumps(result, sort_keys=True))
         return 0
+    except SourceFidelityError as exc:
+        print(json.dumps({
+            "status": "error",
+            "code": "browser_evidence_required",
+            "message": str(exc),
+            "source_fidelity": exc.report,
+            "question": "This page did not render as trustworthy brand evidence. Open it in Kolo's visible browser and capture it?",
+            "recommended_next_step": "Use the visible-browser evidence workflow, then rerun with --browser-evidence.",
+        }, sort_keys=True))
+        return 2
     except FetchError as exc:
         print(json.dumps({
             "status": "error",

@@ -70,7 +70,10 @@ kolo-design create design-system --url "https://example.com" --workspace ./data
 kolo-design create design-system --repo-url "https://github.com/org/site" --workspace ./data
 kolo-design create design-system --source-dir "../site" --workspace ./data
 kolo-design create design-system --source-archive "../site.zip" --workspace ./data
+kolo-design create design-system --browser-evidence "../tesla-browser-evidence" --workspace ./data
 ```
+
+Every website source passes a deterministic fidelity gate before extraction. Error pages, access blocks, bot challenges, and materially empty captures stop with `browser_evidence_required`; Kolo can then capture the real page from its shared visible Chromium session and import a bounded evidence directory or ZIP. See [`references/browser-evidence.md`](references/browser-evidence.md). The evidence bundle intentionally excludes cookies, headers, local storage, and browser history.
 
 The comparison command evaluates two renderers without paying for two planning calls. It produces the current ReportLab PDF and a candidate HTML/CSS document and PDF from one validated plan, runs DOM overflow and grid-alignment checks, and generates side-by-side page previews plus a comparison manifest. ReportLab remains the default while repeated review determines which browser patterns deserve promotion.
 
