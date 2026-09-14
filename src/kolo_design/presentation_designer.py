@@ -296,6 +296,8 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
         long_copy_orphans = 0
         unsafe_controlled_lines = 0
         distorted_images = 0
+        misaligned_supporting_copy = 0
+        footer_encroachments = 0
         for index in range(1, slide_count + 1):
             root = ElementTree.fromstring(archive.read(f"ppt/slides/slide{index}.xml"))
             all_text.extend(node.text or "" for node in root.findall(".//a:t", namespaces))
@@ -335,6 +337,7 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
                 ]
                 if abs(source_ratio / max(frame_ratio, 0.001) - 1) > 0.01 and not any(crop_values):
                     distorted_images += 1
+            copy_tops: dict[str, int] = {}
             for shape in root.findall(".//p:sp", namespaces):
                 shape_text = " ".join(node.text or "" for node in shape.findall(".//a:t", namespaces)).strip()
                 sizes = [int(node.get("sz", "0")) for node in shape.findall(".//a:rPr", namespaces)]
@@ -352,6 +355,17 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
                     long_copy_orphans += 1
                 name_node = shape.find("p:nvSpPr/p:cNvPr", namespaces)
                 shape_name = name_node.get("name") if name_node is not None else ""
+                if shape_name in {"primary-copy", "supporting-copy"}:
+                    offset = shape.find("p:spPr/a:xfrm/a:off", namespaces)
+                    if offset is not None:
+                        copy_tops[shape_name] = int(offset.get("y", "0"))
+                if shape_name.startswith("feature-card-"):
+                    offset = shape.find("p:spPr/a:xfrm/a:off", namespaces)
+                    extent = shape.find("p:spPr/a:xfrm/a:ext", namespaces)
+                    if offset is not None and extent is not None:
+                        lower_edge = int(offset.get("y", "0")) + int(extent.get("cy", "0"))
+                        if lower_edge > 640 * 9_525:
+                            footer_encroachments += 1
                 if shape_name in {"primary-copy", "supporting-copy", "closing-copy"} and max_size:
                     extent = shape.find("p:spPr/a:xfrm/a:ext", namespaces)
                     if extent is not None:
@@ -369,6 +383,9 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
                     and len(shape.findall(".//a:p", namespaces)) < 2
                 ):
                     unbalanced_headlines += 1
+            if {"primary-copy", "supporting-copy"} <= copy_tops.keys():
+                if abs(copy_tops["primary-copy"] - copy_tops["supporting-copy"]) > 9_525:
+                    misaligned_supporting_copy += 1
             for transform in root.findall(".//a:xfrm", namespaces):
                 offset = transform.find("a:off", namespaces)
                 extent = transform.find("a:ext", namespaces)
@@ -398,6 +415,10 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
             raise RuntimeError("PowerPoint package contains a controlled text line that can reflow inside its box")
         if distorted_images:
             raise RuntimeError("PowerPoint package contains brand imagery stretched without an aspect-preserving crop")
+        if misaligned_supporting_copy:
+            raise RuntimeError("PowerPoint package contains supporting copy that is not top-aligned to its primary copy")
+        if footer_encroachments:
+            raise RuntimeError("PowerPoint package contains feature-card copy inside the protected footer zone")
         return {
             "editable_shapes": shape_count,
             "embedded_images": image_count,
@@ -406,6 +427,8 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
             "long_copy_orphans": long_copy_orphans,
             "unsafe_controlled_lines": unsafe_controlled_lines,
             "distorted_images": distorted_images,
+            "misaligned_supporting_copy": misaligned_supporting_copy,
+            "footer_encroachments": footer_encroachments,
         }
 
 
@@ -504,6 +527,8 @@ def create_presentation(
             "long_copy_orphans": package_counts["long_copy_orphans"],
             "unsafe_controlled_lines": package_counts["unsafe_controlled_lines"],
             "distorted_images": package_counts["distorted_images"],
+            "misaligned_supporting_copy": package_counts["misaligned_supporting_copy"],
+            "footer_encroachments": package_counts["footer_encroachments"],
             "distinct_layout_variants": len({slide["variant"] for slide in plan["slides"]}),
         },
         "art_direction": plan["art_direction"],

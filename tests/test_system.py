@@ -319,6 +319,8 @@ def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
     assert quality["checks"]["long_copy_orphans"] == 0
     assert quality["checks"]["unsafe_controlled_lines"] == 0
     assert quality["checks"]["distorted_images"] == 0
+    assert quality["checks"]["misaligned_supporting_copy"] == 0
+    assert quality["checks"]["footer_encroachments"] == 0
     assert quality["checks"]["distinct_layout_variants"] >= 3
 
 

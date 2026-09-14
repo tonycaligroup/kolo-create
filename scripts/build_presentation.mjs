@@ -65,13 +65,17 @@ function addText(slide, text, x, y, width, height, size, color = ink, options = 
   const weight = (options.bold ?? !options.body) ? 700 : 400;
   preview(slide, `<div class="text" style="left:${x}px;top:${y}px;width:${width}px;height:${height}px;font-family:${escapeHtml(options.body ? bodyFont : displayFont)};font-size:${size * 96 / 72}px;font-weight:${weight};color:${color};text-align:${options.align || "left"};align-items:${options.vertical === "top" ? "flex-start" : "center"}">${escapeHtml(value).replace(/\n/g, "<br>")}</div>`);
 }
-function addRect(slide, x, y, width, height, fill, radius = 0, line = null) {
+function addRect(slide, x, y, width, height, fill, radius = 0, line = null, options = {}) {
   slide.addShape(radius ? pptx.ShapeType.roundRect : pptx.ShapeType.rect, {
     x: inch(x), y: inch(y), w: inch(width), h: inch(height),
     fill: { color: noHash(fill) },
     line: line ? { color: noHash(line), width: 1 } : { color: noHash(fill), transparency: 100 },
+    shadow: options.shadow ? {
+      type: "outer", color: noHash(dark), opacity: .12, blur: 4, angle: 45, distance: 2,
+    } : undefined,
   });
-  preview(slide, `<div style="position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${height}px;background:${fill};border-radius:${radius}px"></div>`);
+  const shadow = options.shadow ? `;box-shadow:0 6px 18px rgba(0,15,30,.12)` : "";
+  preview(slide, `<div style="position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${height}px;background:${fill};border-radius:${radius}px${shadow}"></div>`);
 }
 function addOutline(slide, x, y, width, height, color, stroke = 2, radius = 0) {
   slide.addShape(radius ? pptx.ShapeType.roundRect : pptx.ShapeType.rect, {
@@ -326,6 +330,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
     }
     addFooter(slide, index + 1);
   } else if (planSlide.archetype === "feature-list") {
+    if (profile === "kinetic") prepareSlide(slide, surface);
     addText(slide, planSlide.title, 72, 54, 1120, 72, 34, ink, { bold: true, name: "title" });
     const intro = body.find((block) => block.kind === "paragraph");
     if (intro) addText(slide, intro.text, 72, 145, 1080, 76, 18, ink, { body: true, bold: false });
@@ -368,12 +373,21 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
     } else if (profile === "kinetic" && bullets.length >= 3) {
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text);
-        const lead = itemIndex === 0; const x = lead ? (alternate ? 738 : 72) : (alternate ? 72 : 600); const y = lead ? 246 : 246 + (itemIndex - 1) * 148;
-        const width = lead ? 470 : 590; const height = lead ? 310 : 124; const fill = lead ? dark : surface; const color = readable(fill, ink);
-        addRect(slide, x, y, width, height, fill, 8);
-        addRule(slide, x + 24, y + 24, lead ? 150 : 110, itemIndex % 2 ? secondary : accent, 5);
-        addText(slide, label, x + 24, y + 58, width - 48, lead ? 74 : 34, lead ? 25 : 19, color, { bold: true, vertical: "top" });
-        addText(slide, detail, x + 24, y + (lead ? 152 : 94), width - 48, lead ? 120 : 26, lead ? 16 : 12, color, { body: true, vertical: "top" });
+        const lead = itemIndex === 0;
+        const x = lead ? (alternate ? 738 : 72) : (alternate ? 72 : 600);
+        const y = alternate ? (lead ? 225 : 225 + (itemIndex - 1) * 135) : (lead ? 246 : 246 + (itemIndex - 1) * 148);
+        const width = lead ? 470 : 590;
+        const height = alternate ? (lead ? 380 : 110) : (lead ? 310 : 124);
+        const fill = lead ? dark : background; const color = readable(fill, ink);
+        const ruleTop = y + (alternate && !lead ? 18 : 24);
+        const labelTop = y + (alternate && !lead ? 43 : 58);
+        const detailTop = y + (lead ? 152 : alternate ? 76 : 94);
+        addRect(slide, x, y, width, height, fill, 8, null, { shadow: true });
+        addRule(slide, x + 24, ruleTop, lead ? 150 : 110, itemIndex % 2 ? secondary : accent, 5);
+        addText(slide, label, x + 24, labelTop, width - 48, lead ? 74 : 30, lead ? 25 : 19, color,
+          { bold: true, vertical: "top", name: `feature-card-title-${itemIndex + 1}` });
+        addText(slide, detail, x + 24, detailTop, width - 48, lead ? 120 : 24, lead ? 16 : 12, color,
+          { body: true, vertical: "top", name: `feature-card-copy-${itemIndex + 1}` });
       });
     } else if (profile === "monochrome") {
       bullets.forEach((block, itemIndex) => {
@@ -404,7 +418,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addText(slide, planSlide.title, 72, 118, 1060, 90, 40, onField, { bold: true, name: "title" });
       addText(slide, statement?.text || "", 72, 250, 760, 260, 23, onField, { body: true, bold: true, vertical: "top", name: "primary-copy" });
       addRule(slide, 900, 250, 250, onField, 2);
-      addText(slide, remainder, 900, 286, 250, 210, 15, onField, { body: true, vertical: "top", name: "supporting-copy" });
+      addText(slide, remainder, 900, 250, 250, 246, 15, onField, { body: true, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1, onField);
     } else if (profile === "product") {
       addText(slide, planSlide.title, 72, 58, 1060, 90, 40, ink, { bold: true, name: "title" });
@@ -412,29 +426,29 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addRect(slide, 72, 188, 26, 386, accent, 12);
       addText(slide, statement?.text || "", 136, 238, 650, 250, 21, ink, { body: true, bold: true, vertical: "top", name: "primary-copy" });
       addRule(slide, 830, 260, 290, secondary, 4);
-      addText(slide, remainder, 830, 294, 290, 190, 15, ink, { body: true, vertical: "top", name: "supporting-copy" });
+      addText(slide, remainder, 830, 238, 290, 246, 15, ink, { body: true, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1);
     } else if (profile === "monochrome") {
       const field = dark; const onField = readable(field, "#FFFFFF"); prepareSlide(slide, field);
       addText(slide, planSlide.title, 72, 62, 1040, 96, 42, onField, { bold: true, name: "title" });
       addOutline(slide, 72, 190, 1110, 390, onField, 2);
       addText(slide, statement?.text || "", 112, 232, 650, 270, 21, onField, { body: true, bold: true, vertical: "top", name: "primary-copy" });
-      addText(slide, remainder, 840, 330, 290, 170, 15, onField, { body: true, vertical: "top", name: "supporting-copy" });
+      addText(slide, remainder, 840, 232, 290, 268, 15, onField, { body: true, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1, onField);
     } else if (profile === "kinetic") {
       addRect(slide, 0, 0, 330, 720, dark);
       addText(slide, "05", 68, 80, 190, 110, 62, accent, { body: true, bold: true });
       addText(slide, planSlide.title, 390, 58, 800, 96, 42, ink, { bold: true, name: "title" });
-      addText(slide, statement?.text || "", 390, 198, 720, 270, 22, ink, { body: true, bold: true, vertical: "top", name: "primary-copy" });
-      addRule(slide, 390, 500, 280, secondary, 7);
-      addText(slide, remainder, 760, 500, 390, 145, 15, ink, { body: true, vertical: "top", name: "supporting-copy" });
+      addText(slide, statement?.text || "", 390, 198, 430, 390, 20, ink, { body: true, bold: true, vertical: "top", name: "primary-copy" });
+      addRule(slide, 875, 198, 4, secondary, 390);
+      addText(slide, remainder, 920, 198, 260, 330, 15, ink, { body: true, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1);
     } else {
       addText(slide, planSlide.title, 72, 62, 1060, 92, 42, ink, { bold: true, name: "title" });
       addRule(slide, 72, 184, 210, accent, 7);
       addText(slide, statement?.text || "", 72, 234, 650, 292, 21, ink, { body: true, bold: true, vertical: "top", name: "primary-copy" });
       addRule(slide, 800, 292, 380, secondary, 3);
-      addText(slide, remainder, 800, 320, 380, 210, 16, ink, { body: true, bold: false, vertical: "top", name: "supporting-copy" });
+      addText(slide, remainder, 800, 234, 380, 296, 16, ink, { body: true, bold: false, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1);
     }
   } else if (planSlide.archetype === "closing") {
