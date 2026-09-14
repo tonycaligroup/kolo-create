@@ -32,6 +32,15 @@ def _judgment(asset_id: str = "candidate-logo") -> dict[str, object]:
     }
 
 
+def _judgment_with_hero(hero_id: str, production_use: str) -> dict[str, object]:
+    value = _judgment()
+    value["hero_decisions"] = [{
+        "asset_id": hero_id, "decision": "accept",
+        "production_use": production_use, "reason": "webpage chrome is embedded",
+    }]
+    return value
+
+
 def _system(tmp_path: Path) -> tuple[Path, Path]:
     system = read_json(FIXTURES / "design-system.json")
     system["assets"] = [{"id": "candidate-logo", "kind": "logo", "path": str(tmp_path / "logo.png")}]
@@ -83,6 +92,24 @@ def test_brand_director_rejects_unknown_asset_ids(tmp_path: Path) -> None:
             system_path, latest_path, mode="llm",
             invoke=lambda model, prompt, images: json.dumps(_judgment("invented-logo")),
         )
+
+
+def test_brand_director_cannot_override_deterministic_reference_only_media(tmp_path: Path) -> None:
+    system_path, latest_path = _system(tmp_path)
+    system = read_json(system_path)
+    system["assets"].append({
+        "id": "composite-hero", "kind": "hero-image", "path": str(tmp_path / "hero.png"),
+        "asset_class": "reference-evidence", "production_eligible": False,
+    })
+    write_json(system_path, system)
+    result = apply_brand_direction(
+        system_path, latest_path, mode="llm",
+        invoke=lambda model, prompt, images: json.dumps(_judgment_with_hero("composite-hero", "allow")),
+    )
+    assert result["status"] == "succeeded"
+    updated = read_json(system_path)
+    hero = next(asset for asset in updated["assets"] if asset["id"] == "composite-hero")
+    assert hero["production_eligible"] is False
 
 
 def test_direct_brand_call_omits_model_specific_temperature(monkeypatch: pytest.MonkeyPatch) -> None:

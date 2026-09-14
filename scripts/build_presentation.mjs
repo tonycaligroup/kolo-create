@@ -179,6 +179,11 @@ async function addImage(slide, asset, position, alt) {
     return true;
   } catch { return false; }
 }
+function aspectAwareFrame(asset, portraitFrame, landscapeFrame) {
+  const width = Number(asset?.pixel_width || 0);
+  const height = Number(asset?.pixel_height || 0);
+  return width > 0 && height > 0 && width / height >= 1.25 ? landscapeFrame : portraitFrame;
+}
 function slideBlocks(planSlide) { return planSlide.block_ids.map((id) => blocks.get(id)).filter(Boolean); }
 function contentOnly(items) { return items.filter((block) => !block.kind.startsWith("heading")); }
 function splitFeature(text) {
@@ -262,7 +267,14 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addText(slide, balancedHeadline(planSlide.title), 76, 142, 590, 205, 52, ink, { bold: true, name: "title" });
       addText(slide, planSlide.subtitle, 76, 405, 540, 150, 20, ink, { body: true, name: "subtitle", vertical: "top" });
       addRect(slide, 720, 74, 470, 550, background, 18);
-      if (useMedia) await addImage(slide, media[mediaIndex++], { left: 744, top: 98, width: 422, height: 502 }, `${system.name} brand imagery`);
+      if (useMedia) {
+        const asset = media[mediaIndex++];
+        await addImage(slide, asset, aspectAwareFrame(
+          asset,
+          { left: 744, top: 98, width: 422, height: 502 },
+          { left: 744, top: 218, width: 422, height: 225 },
+        ), `${system.name} brand imagery`);
+      }
       else {
         addText(slide, "DESIGN\nSYSTEM", 770, 200, 360, 160, 34, secondary, { bold: true });
         addRule(slide, 770, 410, 260, accent, 14);
@@ -277,10 +289,20 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addText(slide, planSlide.subtitle, 82, 420, useMedia ? 520 : 760, 135, 20, onField, { body: true, name: "subtitle", vertical: "top" });
       if (useMedia) {
         addOutline(slide, 742, 102, 424, 474, onField, 2);
-        await addImage(slide, media[mediaIndex++], { left: 758, top: 118, width: 392, height: 442 }, `${system.name} brand imagery`);
+        const asset = media[mediaIndex++];
+        await addImage(slide, asset, aspectAwareFrame(
+          asset,
+          { left: 758, top: 118, width: 392, height: 442 },
+          { left: 758, top: 228, width: 392, height: 209 },
+        ), `${system.name} brand imagery`);
       }
     } else if (designProfile === "kinetic" && useMedia) {
-      await addImage(slide, media[mediaIndex++], { left: 700, top: 0, width: 580, height: 720 }, `${system.name} brand imagery`);
+      const asset = media[mediaIndex++];
+      await addImage(slide, asset, aspectAwareFrame(
+        asset,
+        { left: 700, top: 0, width: 580, height: 720 },
+        { left: 660, top: 184, width: 570, height: 304 },
+      ), `${system.name} brand imagery`);
       addBrandMark(slide, { left: 72, top: 44, width: 200, height: 56 }, background, { color: accent, name: "brand-label", contrastField: false });
       addText(slide, planSlide.title, 72, 140, 560, 210, 48, ink, { bold: true, name: "title" });
       addText(slide, planSlide.subtitle, 72, 385, 540, 145, 22, ink, { body: true, bold: false, name: "subtitle" });
@@ -591,7 +613,14 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
     addText(slide, planSlide.title, 72, 54, useMedia ? 650 : 1120, 88, 34, ink, { bold: true, name: "title" });
     const copy = body.map((block) => clean(block.text)).join("\n\n");
     addText(slide, copy, 72, 188, useMedia ? 520 : 940, 360, 20, ink, { body: true, bold: false, vertical: "top" });
-    if (useMedia) await addImage(slide, media[mediaIndex++], { left: 690, top: 0, width: 590, height: 635 }, `${system.name} brand imagery`);
+    if (useMedia) {
+      const asset = media[mediaIndex++];
+      await addImage(slide, asset, aspectAwareFrame(
+        asset,
+        { left: 690, top: 0, width: 590, height: 635 },
+        { left: 690, top: 170, width: 540, height: 288 },
+      ), `${system.name} brand imagery`);
+    }
     else addRule(slide, 72, 590, 500, accent, 7);
     addFooter(slide, index + 1);
   }

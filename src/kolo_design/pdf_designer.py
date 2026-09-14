@@ -505,10 +505,15 @@ def create_pdf(
             elif family == "editorial_narrative":
                 pass
             elif family == "asymmetric_feature_grid":
-                if hero_asset and Path(hero_asset["path"]).exists():
+                if (
+                    component_plan["cover"]["placement"] == "side-panel"
+                    and hero_asset and Path(hero_asset["path"]).exists()
+                ):
                     canvas.setFillColor(brand_dark)
                     canvas.rect(width * 0.57, 0, width * 0.43, height * 0.72, stroke=0, fill=1)
                     draw_cover_image(canvas, hero_asset["path"], width * 0.57, 0, width * 0.43, height * 0.72)
+                elif hero_asset and Path(hero_asset["path"]).exists():
+                    draw_cover_image(canvas, hero_asset["path"], 0, 0, width, height * 0.46)
             elif family == "numbered_process":
                 canvas.setFillColor(surface)
                 canvas.setFont(display_font, min(170, width * 0.28))

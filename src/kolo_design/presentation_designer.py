@@ -222,7 +222,11 @@ def _safe_presentation_system(system: dict[str, Any]) -> tuple[dict[str, Any], l
         path = Path(asset_path)
         suffix = path.suffix.lower()
         if asset.get("kind") == "hero-image":
-            if suffix not in _PRESENTATION_IMAGE_SUFFIXES or not raster_dimensions(path):
+            if (
+                asset.get("production_eligible") is False
+                or suffix not in _PRESENTATION_IMAGE_SUFFIXES
+                or not raster_dimensions(path)
+            ):
                 rejected.append(asset_path)
                 continue
         if asset.get("kind") == "logo" and (

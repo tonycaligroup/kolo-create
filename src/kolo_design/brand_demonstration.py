@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .assets import raster_dimensions
+from .media_policy import production_media
 
 
 MEDIA_LED_MODES = {"media-led", "product-led", "illustration-led"}
@@ -20,7 +21,7 @@ def media_expected(system: dict[str, Any]) -> bool:
 def usable_hero_assets(system: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         asset for asset in system.get("assets", [])
-        if asset.get("kind") == "hero-image"
+        if production_media(asset)
         and Path(str(asset.get("path", ""))).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
         and raster_dimensions(Path(str(asset.get("path", ""))))
     ]
@@ -37,11 +38,16 @@ def require_demonstration_assets(
     """Fail an automatic sample that contradicts the extracted visual mode."""
     expected = media_expected(system)
     logo_count = extracted_logo_count(system)
+    reference_only_count = sum(
+        asset.get("kind") == "hero-image" and asset.get("production_eligible") is False
+        for asset in system.get("assets", [])
+    )
     if expected and not hero_selected:
-        raise RuntimeError(
-            f"{format_name} brand demonstration requires imagery because the source is media-led, "
-            "but no usable hero asset was selected"
-        )
+        if not reference_only_count:
+            raise RuntimeError(
+                f"{format_name} brand demonstration requires imagery because the source is media-led, "
+                "but no usable hero asset was selected"
+            )
     if logo_count > 0 and not logo_selected:
         raise RuntimeError(
             f"{format_name} brand demonstration extracted {logo_count} logo asset(s), but none was usable"
@@ -50,6 +56,8 @@ def require_demonstration_assets(
         "enabled": True,
         "media_expected": expected,
         "hero_selected": hero_selected,
+        "reference_only_media": reference_only_count,
+        "media_fallback": "type-led" if expected and not hero_selected and reference_only_count else None,
         "extracted_logo_count": logo_count,
         "logo_selected": logo_selected,
         "logo_text_fallback_disclosed": not logo_selected,

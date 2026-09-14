@@ -196,6 +196,8 @@ def _copy_source_assets(root: Path, system_path: Path) -> int:
             "media_type": f"image/{'jpeg' if candidate.suffix.lower() in {'.jpg', '.jpeg'} else candidate.suffix.lower()[1:]}",
             "pixel_width": width, "pixel_height": height, "aspect_ratio": round(width / max(1, height), 3),
             "orientation": "landscape" if width >= height * 1.2 else "portrait" if height >= width * 1.2 else "square",
+            "asset_class": "production-media", "production_eligible": True,
+            "reuse_reasons": ["original frontend repository asset"],
             "keywords": words,
         })
         existing_hashes.add(digest)

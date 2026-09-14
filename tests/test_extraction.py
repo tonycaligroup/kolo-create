@@ -116,6 +116,28 @@ def test_rendered_browser_asset_is_saved_without_refetch(tmp_path: Path) -> None
     assert saved[0]["pixel_width"] == 1200
 
 
+def test_composite_webpage_capture_is_reference_only(tmp_path: Path) -> None:
+    target = io.BytesIO()
+    Image.new("RGB", (1440, 768), "navy").save(target, "PNG")
+    rendered = {
+        "url": "https://example.com/", "viewport": {"width": 1440, "height": 768},
+        "captured_assets": [{
+            "kind": "hero-image", "path": "browser-capture-1.png", "payload": target.getvalue(),
+            "source_url": "https://example.com/", "capture_tag": "section",
+            "text_sample": "Energy Drinks Events Athletes How Izzi fell back in love with surfing",
+            "embedded_text_characters": 142, "embedded_text_elements": 7,
+            "embedded_interactive_elements": 6, "embedded_navigation_elements": 1,
+            "score": 90,
+        }],
+        "elements": [],
+    }
+    saved = _save_hero_assets(rendered, tmp_path)
+    assert len(saved) == 1
+    assert saved[0]["asset_class"] == "reference-evidence"
+    assert saved[0]["production_eligible"] is False
+    assert "contains navigation chrome" in saved[0]["reuse_reasons"]
+
+
 def test_header_capture_is_not_promoted_to_hero_media(tmp_path: Path) -> None:
     target = io.BytesIO()
     Image.new("RGB", (1200, 280), "black").save(target, "PNG")

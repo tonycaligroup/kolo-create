@@ -40,7 +40,10 @@ def _evidence(system: dict[str, Any]) -> dict[str, Any]:
     assets = [
         {
             key: asset.get(key)
-            for key in ("id", "kind", "source", "alt", "text_sample", "keywords", "pixel_width", "pixel_height", "score")
+            for key in (
+                "id", "kind", "source", "alt", "text_sample", "keywords", "pixel_width", "pixel_height",
+                "score", "asset_class", "production_eligible", "reuse_reasons", "embedded_content",
+            )
             if asset.get(key) not in (None, "", [])
         }
         for asset in system.get("assets") or []
@@ -69,7 +72,10 @@ def _prompt(system: dict[str, Any], attachments: list[dict[str, str]], rejection
         "primary_visual_mode": "typography-led|product-led|media-led|illustration-led|editorial-led|utility-led",
         "palette": {"background": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB", "accent": "#RRGGBB"},
         "logo_decisions": [{"asset_id": "existing ID", "decision": "accept|reject|uncertain", "reason": "short string"}],
-        "hero_decisions": [{"asset_id": "existing ID", "decision": "accept|reject|uncertain", "reason": "short string"}],
+        "hero_decisions": [{
+            "asset_id": "existing ID", "decision": "accept|reject|uncertain",
+            "production_use": "allow|reference-only|uncertain", "reason": "short string",
+        }],
         "composition": {"prefer": ["up to 6 short strings"], "avoid": ["up to 6 short strings"]},
         "motif_strategy": {
             "page_marker": "cover-only|all-pages|none",
@@ -82,6 +88,7 @@ def _prompt(system: dict[str, Any], attachments: list[dict[str, str]], rejection
     return (
         "You are Kolo Create's brand director. Review the bounded deterministic evidence and attached visual captures. "
         "Resolve brand identity, reject unrelated logos/media, and describe a restrained visual direction. "
+        "For every hero decision, distinguish a clean production image from a webpage screenshot that is useful only as reference. "
         "Do not invent assets, colors, copy, dimensions, coordinates, or layout geometry. Use only asset IDs and colors in evidence. "
         "Prefer selective motifs; choose frequent/all-pages only when repetition is visibly signature to the source. "
         "Return JSON only, exactly matching this schema:\n"
@@ -234,6 +241,8 @@ def _validate(value: dict[str, Any], system: dict[str, Any]) -> dict[str, Any]:
                 or not isinstance(decision.get("reason"), str)
             ):
                 raise ValueError(f"{field} contains an unknown asset or decision")
+            if field == "hero_decisions" and decision.get("production_use") not in {"allow", "reference-only", "uncertain"}:
+                raise ValueError("hero_decisions require a valid production_use")
             seen.add(asset_id)
     composition = value.get("composition") or {}
     if any(not isinstance(composition.get(key), list) or len(composition[key]) > 6 for key in ("prefer", "avoid")):
@@ -311,6 +320,14 @@ def apply_brand_direction(
             asset["director_decision"] = decision["decision"]
             asset["director_reason"] = str(decision.get("reason", ""))[:240]
             asset["director_eligible"] = decision["decision"] != "reject"
+            if asset.get("kind") == "hero-image":
+                deterministic_eligible = asset.get("production_eligible") is not False
+                asset["director_production_use"] = decision["production_use"]
+                asset["production_eligible"] = bool(
+                    deterministic_eligible
+                    and decision["decision"] == "accept"
+                    and decision["production_use"] == "allow"
+                )
 
     supported = _supported_colors(system)
     applied_palette: dict[str, str] = {}

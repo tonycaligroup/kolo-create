@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .assets import raster_dimensions
+from .media_policy import crop_visible_fraction, production_media
 
 
 def _luminance(value: str) -> float:
@@ -154,7 +155,7 @@ def _cover_media(
     candidates: list[tuple[float, dict[str, Any]]] = []
     for asset in system.get("assets") or []:
         path = Path(str(asset.get("path", "")))
-        if asset.get("kind") != "hero-image" or asset.get("director_eligible") is False or not path.exists():
+        if not production_media(asset) or asset.get("director_eligible") is False or not path.exists():
             continue
         dimensions = raster_dimensions(path)
         if not dimensions:
@@ -168,6 +169,7 @@ def _cover_media(
             target_width, target_height = 408, 960
             placement = "side-panel"
         density = min(width / target_width, height / target_height)
+        crop_fraction = crop_visible_fraction(aspect, target_width / target_height)
         if density >= minimum_density:
             semantic_terms = _asset_semantics(asset)
             overlap = context_terms & semantic_terms
@@ -183,6 +185,7 @@ def _cover_media(
                 "fit": "cover",
                 "focal_point": [0.54, 0.5],
                 "effective_density": round(density, 2),
+                "crop_visible_fraction": round(crop_fraction, 3),
                 "semantic_relevance": round(relevance, 2),
                 "matched_terms": sorted(overlap),
                 "reason": (
@@ -192,7 +195,11 @@ def _cover_media(
                 ),
             }
             director_bonus = 100 if asset.get("director_decision") == "accept" else 0
-            candidates.append((director_bonus + relevance * 100 + float(asset.get("score", 0)) / 10 + density, candidate))
+            candidates.append((
+                director_bonus + relevance * 100 + float(asset.get("score", 0)) / 10
+                + density + crop_fraction * 20,
+                candidate,
+            ))
     if candidates:
         return max(candidates, key=lambda item: item[0])[1]
     variants = ("index", "rule-stack", "wordmark-scale")

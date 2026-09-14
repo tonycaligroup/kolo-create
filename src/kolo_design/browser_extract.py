@@ -664,6 +664,11 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
                       || (s.backgroundImage && s.backgroundImage !== 'none') || pseudoBackgrounds.length > 0;
                     const captureKey = captureable && areaRatio >= .08 ? `asset-${index}` : '';
                     if (captureKey) el.setAttribute('data-kolo-capture-key', captureKey);
+                    const embeddedTextElements = [...el.querySelectorAll('h1,h2,h3,h4,p,a,button,[role="button"]')]
+                      .filter((child) => (child.innerText || child.getAttribute('aria-label') || '').trim()).length;
+                    const embeddedInteractiveElements = el.querySelectorAll('a,button,input,select,textarea,[role="button"]').length;
+                    const embeddedNavigationElements = el.querySelectorAll('nav,header,[role="navigation"]').length;
+                    const embeddedTextCharacters = (el.innerText || '').trim().replace(/\\s+/g, ' ').length;
                     const region = el.closest('[role="dialog"],dialog,header,nav,main,footer,section,article,aside');
                     const hint = [el.id, el.className, el.getAttribute('role'), el.getAttribute('aria-label')]
                       .filter((value) => typeof value === 'string').join(' ').toLowerCase();
@@ -678,6 +683,10 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
                       source_candidates: sourceCandidates,
                       pseudo_background_images: pseudoBackgrounds,
                       capture_key: captureKey,
+                      embedded_text_characters: embeddedTextCharacters,
+                      embedded_text_elements: embeddedTextElements,
+                      embedded_interactive_elements: embeddedInteractiveElements,
+                      embedded_navigation_elements: embeddedNavigationElements,
                       alt: el.getAttribute('alt') || '',
                       text_sample: (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ').slice(0, 80),
                       rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
@@ -744,6 +753,10 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
                         "score": round(float((item.get("viewport") or {}).get("area_ratio", 0)) * 100, 2),
                         "capture_kind": "rendered-element",
                         "capture_tag": item.get("tag"),
+                        "embedded_text_characters": item.get("embedded_text_characters", 0),
+                        "embedded_text_elements": item.get("embedded_text_elements", 0),
+                        "embedded_interactive_elements": item.get("embedded_interactive_elements", 0),
+                        "embedded_navigation_elements": item.get("embedded_navigation_elements", 0),
                     })
                     if len(captured_assets) >= 6:
                         break

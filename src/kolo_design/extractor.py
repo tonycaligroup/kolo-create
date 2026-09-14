@@ -23,6 +23,7 @@ from .design_grammar import compile_design_grammar
 from .contracts import validate_design_system
 from .network import MAX_ASSET_BYTES, MAX_HTML_BYTES, FetchError, fetch_limited
 from .reference_evidence import analyze_reference_pdf, reconcile_reference_colors
+from .media_policy import classify_rendered_media
 from .source_fidelity import SourceFidelityError, ensure_source_fidelity
 from .util import atomic_write, sha256_bytes, slugify, write_json
 
@@ -886,6 +887,7 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
             target.unlink(missing_ok=True)
             continue
         width, height = dimensions
+        media_policy = classify_rendered_media(item)
         semantic_text = " ".join(
             str(item.get(key, "")) for key in ("alt", "text_sample", "source_url")
         ).strip()
@@ -900,9 +902,12 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
             "keywords": sorted({word.lower() for word in re.findall(r"[A-Za-z0-9]+", semantic_text) if len(word) >= 3})[:20],
             "pixel_width": width, "pixel_height": height, "aspect_ratio": round(width / max(1, height), 3),
             "orientation": "landscape" if width >= height * 1.2 else "portrait" if height >= width * 1.2 else "square",
+            **media_policy,
         })
-        if len(captured) >= limit:
-            return captured
+        # Rendered captures are valuable evidence, but they must not consume the
+        # whole media budget before clean underlying image URLs are attempted.
+        if len(captured) >= min(2, limit):
+            break
     ranked: list[tuple[float, str, dict[str, Any]]] = []
     for element in rendered.get("elements", []):
         if not _in_primary_view(element):
@@ -971,6 +976,8 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
                 "pixel_width": width, "pixel_height": height,
                 "aspect_ratio": round(width / max(1, height), 3),
                 "orientation": "landscape" if width >= height * 1.2 else "portrait" if height >= width * 1.2 else "square",
+                "asset_class": "production-media", "production_eligible": True,
+                "reuse_reasons": ["downloaded underlying image source without rendered webpage overlays"],
             })
             if len(saved) >= limit:
                 break
@@ -1197,6 +1204,14 @@ def extract_brand(
             "counts": {
                 "css_bytes": len(css.encode()), "stylesheets_fetched": len(stylesheet_urls),
                 "logo_assets": len(logo_assets), "hero_assets": len(hero_assets), "browser_rendered": bool(rendered),
+                "production_media_assets": sum(
+                    asset.get("kind") == "hero-image" and asset.get("production_eligible") is not False
+                    for asset in assets
+                ),
+                "reference_evidence_assets": sum(
+                    asset.get("kind") == "hero-image" and asset.get("production_eligible") is False
+                    for asset in assets
+                ),
                 "visible_elements_sampled": len(rendered.get("elements", [])) if rendered else 0,
                 "overlays_excluded": visual_language["overlay_count"],
                 "overlays_dismissed": (rendered.get("overlay_actions") or {}) if rendered else {},
@@ -1233,9 +1248,18 @@ def extract_brand(
                 },
                 "primary_button": components.get("buttons", {}).get("selection", {}),
                 "hero_image": {
-                    "asset_id": hero_assets[0]["id"] if hero_assets else None,
-                    "confidence": hero_assets[0].get("confidence", 0) if hero_assets else 0,
-                    "provenance": hero_assets[0].get("provenance") if hero_assets else None,
+                    "asset_id": next(
+                        (asset["id"] for asset in hero_assets if asset.get("production_eligible") is not False),
+                        None,
+                    ),
+                    "confidence": next(
+                        (asset.get("confidence", 0) for asset in hero_assets if asset.get("production_eligible") is not False),
+                        0,
+                    ),
+                    "provenance": next(
+                        (asset.get("provenance") for asset in hero_assets if asset.get("production_eligible") is not False),
+                        None,
+                    ),
                 },
             },
             "limitations": [

@@ -36,6 +36,7 @@ from kolo_design.pdf_designer import (
     create_pdf,
 )
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
+from kolo_design.media_policy import crop_visible_fraction
 from kolo_design.presentation_planner import DeterministicPresentationPlanner, validate_presentation_plan
 from kolo_design.presentation_art_direction import apply_presentation_art_direction, presentation_profile
 from kolo_design.presentation_similarity import compare_presentation_layouts, presentation_layout_identity
@@ -186,6 +187,27 @@ def test_cover_rejects_unrelated_brand_media(tmp_path: Path) -> None:
     assert selected["cover"]["asset_id"] is None
 
 
+def test_cover_rejects_reference_only_webpage_capture(tmp_path: Path) -> None:
+    hero = tmp_path / "page-capture.jpg"
+    PILImage.new("RGB", (1440, 768), "navy").save(hero)
+    system = read_json(FIXTURES / "design-system.json")
+    system["assets"] = [{
+        "id": "page-capture", "kind": "hero-image", "path": str(hero),
+        "production_eligible": False, "asset_class": "reference-evidence",
+        "alt": "Red Bull surfer",
+    }]
+    content = "# Kolo Create\n\nCreate a reusable design system."
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Explain Kolo Create", blocks)
+    selected = select_component_plan(system, plan, blocks, "Explain Kolo Create", brand_demonstration=True)
+    assert selected["cover"]["asset_id"] is None
+
+
+def test_crop_visible_fraction_detects_severe_landscape_to_portrait_crop() -> None:
+    assert crop_visible_fraction(1.875, 0.46) < 0.25
+    assert crop_visible_fraction(1.875, 1.875) == pytest.approx(1.0)
+
+
 def test_brand_demonstration_can_use_signature_media_without_topic_overlap(tmp_path: Path) -> None:
     hero = tmp_path / "rocket.jpg"
     PILImage.new("RGB", (1600, 900), "black").save(hero)
@@ -211,6 +233,19 @@ def test_media_led_brand_demonstration_refuses_assetless_output() -> None:
         require_demonstration_assets(
             system, hero_selected=False, logo_selected=False, format_name="PDF"
         )
+
+
+def test_media_led_demonstration_uses_type_fallback_for_reference_only_capture() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    system["visual_language"] = {"primary_mode": "media-led", "media_coverage": 0.72}
+    system["assets"] = [{
+        "id": "composite", "kind": "hero-image", "path": "/tmp/composite.png",
+        "production_eligible": False,
+    }]
+    result = require_demonstration_assets(
+        system, hero_selected=False, logo_selected=False, format_name="PDF"
+    )
+    assert result["media_fallback"] == "type-led"
 
 
 def test_site_benchmark_matrix_covers_ten_distinct_brands() -> None:
