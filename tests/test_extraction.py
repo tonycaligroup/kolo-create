@@ -16,6 +16,7 @@ from kolo_design.extractor import (
     _choose_fonts,
     _color_to_hex,
     _component_inventory,
+    _in_primary_view,
     _logo_candidates,
     _logo_palette,
     _refine_rendered_colors,
@@ -55,6 +56,17 @@ def test_browser_native_evidence_preserves_css_for_future_renderers() -> None:
     assert evidence["background_treatments"] == ["linear-gradient(#fff, #eee)"]
 
 
+def test_tiny_carousel_navigation_does_not_define_primary_brand_evidence() -> None:
+    control = {
+        "role": "button",
+        "text_sample": "Next slide",
+        "rect": {"width": 34, "height": 34},
+        "viewport": {"visible": True, "area_ratio": 0.0007},
+        "semantic": {"region": "section", "overlay": False},
+    }
+    assert not _in_primary_view(control)
+
+
 def test_consent_cleanup_removes_orphaned_fullscreen_backdrop() -> None:
     executable = _browser_executable()
     if not executable:
@@ -72,6 +84,32 @@ def test_consent_cleanup_removes_orphaned_fullscreen_backdrop() -> None:
         result = _dismiss_overlays(page)
         assert result == {"clicked": "Accept All", "hidden": 1, "backdrops_hidden": 1}
         assert page.locator(".privacy-backdrop").evaluate("el => getComputedStyle(el).display") == "none"
+        browser.close()
+
+
+def test_consent_cleanup_handles_shopify_alertdialog_and_dimmed_layer() -> None:
+    executable = _browser_executable()
+    if not executable:
+        pytest.skip("Chromium is not installed")
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1200, "height": 800})
+        page.set_content(
+            """
+            <main>Visible brand page</main>
+            <section id="shopify-pc__banner" class="shopify-pc__banner__dialog"
+                     role="alertdialog" style="position:fixed;right:24px;bottom:24px;z-index:200002">
+              <p>We use cookies to improve your experience.</p>
+              <button id="shopify-pc__banner__btn-decline">Decline</button>
+            </section>
+            <div class="cookie_dimmed"
+                 style="position:fixed;inset:0;z-index:200001;background:rgba(0,0,0,.4)"></div>
+            """
+        )
+        result = _dismiss_overlays(page)
+        assert result == {"clicked": "Decline", "hidden": 1, "backdrops_hidden": 1}
+        assert page.locator("#shopify-pc__banner").evaluate("el => getComputedStyle(el).display") == "none"
+        assert page.locator(".cookie_dimmed").evaluate("el => getComputedStyle(el).display") == "none"
         browser.close()
 
 

@@ -87,6 +87,11 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
     result = page.evaluate(
         """() => {
           const overlayWords = /(cookie|consent|privacy|tracking|preference)/i;
+          const overlaySelector = [
+            '[role="dialog"]', '[role="alertdialog"]', '[aria-modal="true"]', 'dialog',
+            '[id*="cookie" i]', '[class*="cookie" i]',
+            '[id*="consent" i]', '[class*="consent" i]'
+          ].join(',');
           const choices = [
             /^(decline|reject)( all)?$/i,
             /^(only |use )?(necessary|essential)( cookies)?$/i,
@@ -102,7 +107,7 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
             const control = controls.find((el) => {
               const label = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
               if (!pattern.test(label)) return false;
-              const parent = el.closest('[role="dialog"],dialog,[id*="cookie" i],[class*="cookie" i],[id*="consent" i],[class*="consent" i]');
+              const parent = el.closest(overlaySelector);
               return Boolean(parent && overlayWords.test(parent.innerText || parent.getAttribute('aria-label') || ''));
             });
             if (control) {
@@ -118,7 +123,12 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
     hidden_result = page.evaluate(
         """() => {
           const words = /(cookie|consent|privacy|tracking|preference)/i;
-          const candidates = [...document.querySelectorAll('[role="dialog"],dialog,[id*="cookie" i],[class*="cookie" i],[id*="consent" i],[class*="consent" i]')];
+          const overlaySelector = [
+            '[role="dialog"]', '[role="alertdialog"]', '[aria-modal="true"]', 'dialog',
+            '[id*="cookie" i]', '[class*="cookie" i]',
+            '[id*="consent" i]', '[class*="consent" i]'
+          ].join(',');
+          const candidates = [...document.querySelectorAll(overlaySelector)];
           let hidden = 0;
           for (const el of candidates) {
             const r = el.getBoundingClientRect(), s = getComputedStyle(el);

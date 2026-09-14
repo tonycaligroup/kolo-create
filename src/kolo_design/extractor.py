@@ -123,7 +123,18 @@ def _in_primary_view(element: dict[str, Any]) -> bool:
     viewport = element.get("viewport") or {}
     visible = viewport.get("visible", True)
     region = str((element.get("semantic") or {}).get("region", "")).lower()
-    return bool(visible) and not _is_overlay(element) and region not in {"dialog", "footer"}
+    label = str(element.get("text_sample", "")).strip().lower()
+    incidental_carousel_control = (
+        str(element.get("role", "")).lower() == "button"
+        and _area_ratio(element, {"viewport": {"width": 1440, "height": 1100}}) < 0.002
+        and label in {"next slide", "previous slide", "next", "previous"}
+    )
+    return (
+        bool(visible)
+        and not _is_overlay(element)
+        and region not in {"dialog", "footer"}
+        and not incidental_carousel_control
+    )
 
 
 def _choose_colors(css: str) -> tuple[dict[str, str], list[dict[str, Any]]]:
