@@ -13,6 +13,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import kolo_design.cli as cli_module
 from kolo_design.assets import select_logo_asset
 from kolo_design.brand_components import build_brand_components, select_component_plan, validate_component_plan
+from kolo_design.brand_director import DEFAULT_BRAND_MODEL
 from kolo_design.brand_demonstration import require_demonstration_assets
 from kolo_design.composition import select_composition, validate_composition
 from kolo_design.content_map import build_content_map, validate_content_map
@@ -355,6 +356,8 @@ def test_create_design_system_command_contract() -> None:
     assert args.command == "create"
     assert args.create_command == "design-system"
     assert args.example_output == Path("./example.pdf")
+    assert args.brand_director == "auto"
+    assert args.brand_model == DEFAULT_BRAND_MODEL
 
 
 def test_create_design_system_source_contract() -> None:

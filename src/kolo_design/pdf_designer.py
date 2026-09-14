@@ -301,6 +301,19 @@ def create_pdf(
     marker_recipe = component_library["section-marker"]
     dual_marker = marker_recipe["style"] == "dual-tone"
     section_treatments = {item["section_id"]: item["treatment"] for item in component_plan["sections"]}
+    marked_section_ids = {
+        item["section_id"] for item in component_plan["sections"] if "section-marker" in item["components"]
+    }
+    layout_section_by_id = {item["id"]: item for item in plan["layout"]["sections"]}
+    marked_heading_ids = {
+        block_id
+        for section_id in marked_section_ids
+        for block_id in layout_section_by_id[section_id]["block_ids"]
+        if next((block for block in blocks if block["id"] == block_id), {}).get("kind", "").startswith("heading")
+    }
+    page_marker_strategy = ((system.get("brand_direction") or {}).get("motif_strategy") or {}).get(
+        "page_marker", "cover-only"
+    )
 
     page_size = A4 if plan["page_size"] == "A4" else LETTER
     if plan["orientation"] == "landscape":
@@ -466,22 +479,26 @@ def create_pdf(
         canvas.saveState()
         canvas.setFillColor(background)
         canvas.rect(0, 0, width, height, stroke=0, fill=1)
-        marker_width = {
-            "editorial_narrative": 0.9 * inch,
-            "asymmetric_feature_grid": 1.8 * inch,
-            "numbered_process": 1.15 * inch,
-            "product_showcase": 1.45 * inch,
-        }.get(family, 1.05 * inch)
-        marker_x = 0.72 * inch
-        marker_y = height - 0.34 * inch
-        canvas.setFillColor(accent)
-        if dual_marker:
-            share = float(marker_recipe.get("primary_share", 0.72))
-            canvas.rect(marker_x, marker_y, marker_width * share, 5, stroke=0, fill=1)
-            canvas.setFillColor(accent_secondary)
-            canvas.rect(marker_x + marker_width * share, marker_y, marker_width * (1 - share), 5, stroke=0, fill=1)
-        else:
-            canvas.rect(marker_x, marker_y, marker_width, 5, stroke=0, fill=1)
+        show_page_marker = page_marker_strategy == "all-pages" or (
+            page_marker_strategy == "cover-only" and doc.page == 1
+        )
+        if show_page_marker:
+            marker_width = {
+                "editorial_narrative": 0.9 * inch,
+                "asymmetric_feature_grid": 1.8 * inch,
+                "numbered_process": 1.15 * inch,
+                "product_showcase": 1.45 * inch,
+            }.get(family, 1.05 * inch)
+            marker_x = 0.72 * inch
+            marker_y = height - 0.34 * inch
+            canvas.setFillColor(accent)
+            if dual_marker:
+                share = float(marker_recipe.get("primary_share", 0.72))
+                canvas.rect(marker_x, marker_y, marker_width * share, 5, stroke=0, fill=1)
+                canvas.setFillColor(accent_secondary)
+                canvas.rect(marker_x + marker_width * share, marker_y, marker_width * (1 - share), 5, stroke=0, fill=1)
+            else:
+                canvas.rect(marker_x, marker_y, marker_width, 5, stroke=0, fill=1)
         if doc.page == 1:
             if component_plan["cover"]["placement"] == "none":
                 draw_type_led_motif(canvas)
@@ -581,7 +598,11 @@ def create_pdf(
     story.append(PageBreak())
 
     by_id = {block["id"]: block for block in blocks}
-    component_usage = {"headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0, "brand_rules": 1, "feature_bands": 0, "editorial_features": 0}
+    component_usage = {
+        "headings": 0, "cards": 0, "callouts": 0, "actions": 0, "standard_blocks": 0,
+        "brand_rules": 1 if page_marker_strategy in {"cover-only", "all-pages"} else 0,
+        "feature_bands": 0, "editorial_features": 0,
+    }
     skipped_cover_heading = False
 
     def add_standard(block: dict[str, str], *, lead: bool = False) -> None:
@@ -597,25 +618,30 @@ def create_pdf(
             story.extend([CondPageBreak(120), Paragraph(safe, styles["h1"])])
             component_usage["headings"] += 1
         elif kind == "heading2":
-            if family == "editorial_narrative":
+            show_marker = block["id"] in marked_heading_ids
+            if show_marker and family == "editorial_narrative":
                 story.extend([
                     CondPageBreak(145),
                     HRFlowable(width="100%", thickness=0.8, color=accent, spaceBefore=base * 3, spaceAfter=base * 1.4, hAlign="LEFT"),
                     Paragraph(safe, styles["h2"]),
                 ])
-            elif family in {"modular_announcement", "product_showcase"}:
+                component_usage["brand_rules"] += 1
+            elif show_marker and family in {"modular_announcement", "product_showcase"}:
                 story.extend([
                     CondPageBreak(145),
                     Spacer(1, base * 2.5), brand_rule(content_width * 0.18, 4), Spacer(1, base * 1.5),
                     Paragraph(safe, styles["h2"]),
                 ])
                 component_usage["brand_rules"] += 1
-            else:
+            elif show_marker:
                 story.extend([
                     CondPageBreak(130),
                     HRFlowable(width="14%", thickness=4, color=accent, spaceBefore=base * 2, spaceAfter=base * 1.4, hAlign="LEFT"),
                     Paragraph(safe, styles["h2"]),
                 ])
+                component_usage["brand_rules"] += 1
+            else:
+                story.extend([CondPageBreak(130), Paragraph(safe, styles["h2"])])
             component_usage["headings"] += 1
         elif kind == "heading3":
             story.append(Paragraph(safe.upper(), styles["h3"]))
@@ -919,15 +945,12 @@ def create_pdf(
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]),
         )
-        story.extend([
-            CondPageBreak(130),
-            Spacer(1, base * 2.5), brand_rule(content_width * 0.16, 4), Spacer(1, base * 2),
-            heading_flowable,
-            Spacer(1, base * 2),
-            body_and_action,
-            Spacer(1, base * 2),
-        ])
-        component_usage["brand_rules"] += 1
+        heading_id = next((block["id"] for block in section_blocks if block["kind"].startswith("heading")), None)
+        story.append(CondPageBreak(130))
+        if heading_id in marked_heading_ids:
+            story.extend([Spacer(1, base * 2.5), brand_rule(content_width * 0.16, 4), Spacer(1, base * 2)])
+            component_usage["brand_rules"] += 1
+        story.extend([heading_flowable, Spacer(1, base * 2), body_and_action, Spacer(1, base * 2)])
 
     sections = plan["layout"]["sections"]
     for section_index, section in enumerate(sections):

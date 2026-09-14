@@ -5,6 +5,8 @@ Kolo Create is one Kolo skill with two reusable stages:
 1. Turn a public website or renderable frontend source into a versioned design system.
 2. Turn source text plus a design prompt into a verified PDF or editable PowerPoint using that exact design-system version.
 
+Design-system creation is deterministic first, then uses one optional bounded brand-director judgment. On Kolo it defaults to `openai/gpt-5.6-sol` through `openclaw infer model run`; other workspaces can choose another entitled model, configure an OpenAI-compatible proxy, or disable the call. The model may reject unrelated captured assets and recommend a visual direction, but code validates the JSON, accepts only observed colors and asset IDs, and retains ownership of every coordinate and quality gate.
+
 The second stage never recrawls or mutates the brand. This keeps artifacts reproducible while presenting one coherent skill to the user.
 
 ## Quick start

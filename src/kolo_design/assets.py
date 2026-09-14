@@ -82,6 +82,8 @@ def select_logo_asset(
     for asset in system.get("assets") or []:
         if asset.get("kind") != "logo":
             continue
+        if asset.get("director_eligible") is False:
+            continue
         path = Path(str(asset.get("path", "")))
         if not path.exists():
             continue

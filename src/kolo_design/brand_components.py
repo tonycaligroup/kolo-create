@@ -154,7 +154,7 @@ def _cover_media(
     candidates: list[tuple[float, dict[str, Any]]] = []
     for asset in system.get("assets") or []:
         path = Path(str(asset.get("path", "")))
-        if asset.get("kind") != "hero-image" or not path.exists():
+        if asset.get("kind") != "hero-image" or asset.get("director_eligible") is False or not path.exists():
             continue
         dimensions = raster_dimensions(path)
         if not dimensions:
@@ -191,7 +191,8 @@ def _cover_media(
                     else "unlabeled media allowed by explicit image-led prompt"
                 ),
             }
-            candidates.append((relevance * 100 + float(asset.get("score", 0)) / 10 + density, candidate))
+            director_bonus = 100 if asset.get("director_decision") == "accept" else 0
+            candidates.append((director_bonus + relevance * 100 + float(asset.get("score", 0)) / 10 + density, candidate))
     if candidates:
         return max(candidates, key=lambda item: item[0])[1]
     variants = ("index", "rule-stack", "wordmark-scale")
@@ -227,11 +228,24 @@ def select_component_plan(
         return component if score else None
 
     composition_family = (plan.get("composition") or {}).get("family")
+    marker_strategy = ((system.get("brand_direction") or {}).get("motif_strategy") or {}).get(
+        "section_markers", "selective"
+    )
+    heading_sections = [
+        index for index, section in enumerate(layout_sections)
+        if any(by_id[block_id]["kind"].startswith("heading") for block_id in section["block_ids"])
+    ]
+    if marker_strategy == "frequent":
+        marked_sections = set(heading_sections)
+    elif marker_strategy == "none":
+        marked_sections = set()
+    else:
+        marked_sections = set(heading_sections[::3][:2])
     for index, section in enumerate(layout_sections):
         section_blocks = [by_id[block_id] for block_id in section["block_ids"]]
         bullet_count = sum(block["kind"] == "bullet" for block in section_blocks)
         closing = index == len(layout_sections) - 1 and any(block["kind"] == "action" for block in section_blocks)
-        components = ["section-marker"] if any(block["kind"].startswith("heading") for block in section_blocks) else []
+        components = ["section-marker"] if index in marked_sections else []
         treatment = "standard"
         selected_scene_component = scene_component(section["block_ids"])
         if closing:

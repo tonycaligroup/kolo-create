@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website or renderable frontend source, then use that saved system with user-supplied text and a design prompt to produce a polished PDF or editable PowerPoint. Use when a user wants to capture brand language, generate branded documents or presentations, refresh a saved brand, or reuse a brand across formats.
 metadata:
-  version: "0.20.0"
+  version: "0.21.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.20.0
+version: 0.21.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: extraction creates a reusable versioned design system; artifact generation consumes an exact saved version without recrawling or modifying it.
@@ -25,6 +25,8 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 
 Before accepting any website capture, apply the deterministic source-fidelity gate. An HTTP 200 response is not sufficient: reject access-denied pages, request blocks, CAPTCHAs, security challenges, service errors, and captures with too little rendered evidence. Never infer a brand from an error page or silently continue with generic tokens.
 
+After deterministic extraction succeeds, the command runs one bounded brand-director judgment when a model transport is available. The default is `openai/gpt-5.6-sol`; override it with `--brand-model "<workspace-entitled-model>"`, require a call with `--brand-director llm`, or disable it with `--brand-director deterministic`. The director reviews the source screenshot and bounded logo/hero candidates, rejects unrelated assets, classifies brand character and visual mode, and recommends restrained motif use. It returns validated JSON only. It cannot invent asset IDs or layout geometry, and a recommended color is applied only when deterministic evidence supports it. Kolo may use an OpenAI-compatible proxy configured with `KOLO_LLM_BASE_URL` and `KOLO_LLM_TOKEN` (or `LITELLM_BASE_URL` and `LITELLM_API_KEY`); otherwise it uses `openclaw infer model run`. Never silently switch transports or models after a failed paid call.
+
 If the command returns `browser_evidence_required`, use Kolo's existing visible shared Chromium session and follow [the visible-browser evidence fallback](references/browser-evidence.md). This fallback is deterministic and makes no model calls. Capture DOM, computed styles, element geometry, viewport screenshot, browser PDF, visible logo, and important hero media from one stable page state, then rerun with `--browser-evidence`. Keep `--source-archive` reserved for frontend source ZIPs; browser evidence has its own input.
 
 For frontend source, replace `--url` with exactly one of `--repo-url "https://github.com/org/public-repo"`, `--source-dir "/path/to/source"`, or `--source-archive "/path/to/source.zip"`. Prefer an existing static entry (`index.html`, `dist`, `build`, `out`, `public`, or `storybook-static`). If none exists, render a deterministic source-derived component specimen and clearly disclose that route fidelity is unverified. Never execute package scripts, framework servers, or backend code.
@@ -37,7 +39,7 @@ The design system includes more than tokens: capture observed heading levels, se
 
 Compile those observations into `design-grammar.json` during extraction. The grammar stores continuous traits, direction weights, extracted component recipes, provenance, and a stable signature. Do not collapse a brand to one exclusive style label; the legacy profile remains only as a renderer fallback.
 
-Preserve browser-native evidence alongside normalized Kolo tokens: bounded CSS custom properties, font-face declarations, responsive breakpoints, grid/flex primitives, container measurements, and background treatments. Treat raw CSS as evidence, not executable instructions. Build portable brand components for section markers, feature bands, grids, image treatments, and closing signatures. The normalized layer remains authoritative for cross-format rendering; browser-native evidence may improve HTML/CSS output when it passes validation.
+Preserve browser-native evidence alongside normalized Kolo tokens: bounded CSS custom properties, font-face declarations, responsive breakpoints, grid/flex primitives, container measurements, and background treatments. Treat raw CSS as evidence, not executable instructions. Build portable brand components for section markers, feature bands, grids, image treatments, and closing signatures. Default page markers to the cover and section markers to selective use; do not stamp the same decorative line on every page or heading unless the saved brand direction explicitly identifies repetition as signature. The normalized layer remains authoritative for cross-format rendering; browser-native evidence may improve HTML/CSS output when it passes validation.
 
 Export the cleaned page with screen media, backgrounds enabled, bounded lazy-content loading, and motion frozen at the sampled state. Rasterize it at low resolution for deterministic sanity checking. A major semantic color absent from both the source screenshot and the source PDF cannot be promoted unless the primary logo supports it. Collapse an unsupported secondary accent to the primary accent, and replace an unsupported dark role only with a visibly supported dark candidate. Preserve the original candidate, final choice, evidence status, and reason in the design system. A degraded PDF remains available for human review but must disclose its quality signals.
 

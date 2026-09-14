@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .browser_evidence import load_browser_evidence
+from .brand_director import DEFAULT_BRAND_MODEL, apply_brand_direction
 from .extractor import extract_brand
 from .html_designer import compare_pdf_renderers, create_html_pdf
 from .network import FetchError
@@ -34,6 +35,14 @@ def parser() -> argparse.ArgumentParser:
     )
     design_system.add_argument("--workspace", type=Path, required=True)
     design_system.add_argument("--name")
+    design_system.add_argument(
+        "--brand-director", choices=("auto", "llm", "deterministic"), default="auto",
+        help="Use one bounded brand-judgment call when available, require it, or disable it",
+    )
+    design_system.add_argument(
+        "--brand-model", default=DEFAULT_BRAND_MODEL,
+        help=f"Workspace-entitled brand-director model (default: {DEFAULT_BRAND_MODEL})",
+    )
     design_system.add_argument(
         "--example-output",
         type=Path,
@@ -93,6 +102,16 @@ def main(argv: list[str] | None = None) -> int:
                     args.workspace, args.name, source_dir=args.source_dir,
                     source_archive=args.source_archive, repo_url=args.repo_url,
                 )
+            design_system_path = Path(result["design_system"])
+            latest_path = Path(result.get("latest") or design_system_path.parent.parent / "latest.json")
+            result["brand_direction"] = (
+                apply_brand_direction(
+                    design_system_path, latest_path,
+                    mode=args.brand_director, model=args.brand_model,
+                )
+                if design_system_path.exists()
+                else {"status": "skipped", "reason": "design-system artifact unavailable", "model": args.brand_model}
+            )
             example_output = args.example_output or (
                 args.workspace.resolve() / "examples" / f"{result['brand_id']}-kolo-create.pdf"
             )
