@@ -409,14 +409,17 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
                 if not card:
                     continue
                 card_x, card_y, card_width, card_height = card
+                horizontal_padding = 24 * 9_525
+                vertical_padding = 8 * 9_525
                 for child in (title, copy):
                     if child is None:
                         continue
                     x, y, width, height = child
                     if not (
-                        x >= card_x and y >= card_y
-                        and x + width <= card_x + card_width
-                        and y + height <= card_y + card_height
+                        x >= card_x + horizontal_padding
+                        and y >= card_y + vertical_padding
+                        and x + width <= card_x + card_width - horizontal_padding
+                        and y + height <= card_y + card_height - vertical_padding
                     ):
                         feature_card_overflows += 1
                 if title and copy and abs(title[0] - copy[0]) > 9_525:
@@ -455,7 +458,7 @@ def _validate_package(path: Path, slide_count: int, blocks: list[dict[str, str]]
         if footer_encroachments:
             raise RuntimeError("PowerPoint package contains feature-card copy inside the protected footer zone")
         if feature_card_overflows:
-            raise RuntimeError("PowerPoint package contains feature-card text outside its card bounds")
+            raise RuntimeError("PowerPoint package contains feature-card text inside its protected padding area")
         if misaligned_feature_copy:
             raise RuntimeError("PowerPoint package contains feature-card title and copy on different left edges")
         return {
