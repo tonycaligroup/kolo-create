@@ -13,6 +13,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import kolo_design.cli as cli_module
 from kolo_design.assets import select_logo_asset
 from kolo_design.brand_components import build_brand_components, select_component_plan, validate_component_plan
+from kolo_design.brand_demonstration import require_demonstration_assets
 from kolo_design.composition import select_composition, validate_composition
 from kolo_design.content_map import build_content_map, validate_content_map
 from kolo_design.contracts import validate_design_system
@@ -181,6 +182,42 @@ def test_cover_rejects_unrelated_brand_media(tmp_path: Path) -> None:
     selected = select_component_plan(system, plan, blocks, "Create an operational announcement")
     assert selected["cover"]["component"] == "type-led-cover"
     assert selected["cover"]["asset_id"] is None
+
+
+def test_brand_demonstration_can_use_signature_media_without_topic_overlap(tmp_path: Path) -> None:
+    hero = tmp_path / "rocket.jpg"
+    PILImage.new("RGB", (1600, 900), "black").save(hero)
+    system = read_json(FIXTURES / "design-system.json")
+    system["assets"] = [{
+        "id": "rocket", "kind": "hero-image", "path": str(hero),
+        "alt": "Falcon rocket launch", "keywords": ["falcon", "rocket", "launch"],
+    }]
+    content = "# Kolo Create\n\nCreate a reusable design system."
+    blocks = source_blocks(content)
+    plan = DeterministicPlanner().plan(content, "Explain Kolo Create", blocks)
+    selected = select_component_plan(
+        system, plan, blocks, "Explain Kolo Create", brand_demonstration=True
+    )
+    assert selected["cover"]["asset_id"] == "rocket"
+    assert selected["cover"]["reason"] == "signature brand media selected for automatic brand demonstration"
+
+
+def test_media_led_brand_demonstration_refuses_assetless_output() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    system["visual_language"] = {"primary_mode": "media-led", "media_coverage": 0.72}
+    with pytest.raises(RuntimeError, match="requires imagery"):
+        require_demonstration_assets(
+            system, hero_selected=False, logo_selected=False, format_name="PDF"
+        )
+
+
+def test_site_benchmark_matrix_covers_ten_distinct_brands() -> None:
+    matrix = read_json(Path(__file__).parents[1] / "benchmarks" / "site-matrix.json")
+    sites = matrix["sites"]
+    assert len(sites) == 10
+    assert len({site["id"] for site in sites}) == 10
+    hazards = {hazard for site in sites for hazard in site["hazards"]}
+    assert {"video", "gradients", "illustration", "dense-commerce", "pale-contrast"} <= hazards
 
 
 def test_cover_ignores_generic_metadata_overlap(tmp_path: Path) -> None:
@@ -689,8 +726,8 @@ def test_create_design_system_can_render_bundled_first_example(monkeypatch: pyte
     )
     captured: dict[str, Path] = {}
 
-    def fake_create_pdf(system: Path, content: Path, prompt: str, output: Path, planner: object) -> dict[str, str]:
-        captured.update(system=system, content=content, output=output)
+    def fake_create_pdf(system: Path, content: Path, prompt: str, output: Path, planner: object, **options: object) -> dict[str, str]:
+        captured.update(system=system, content=content, output=output, **options)
         return {"status": "succeeded", "pdf": str(output)}
 
     monkeypatch.setattr(cli_module, "create_pdf", fake_create_pdf)
@@ -704,6 +741,7 @@ def test_create_design_system_can_render_bundled_first_example(monkeypatch: pyte
     assert captured["output"] == example_path
     assert captured["content"].name == "kolo-create-explainer.md"
     assert captured["content"].exists()
+    assert captured["brand_demonstration"] is True
 
 
 def test_create_design_system_automatically_renders_default_first_example(
@@ -719,8 +757,8 @@ def test_create_design_system_automatically_renders_default_first_example(
     )
     captured: dict[str, Path] = {}
 
-    def fake_create_pdf(system: Path, content: Path, prompt: str, output: Path, planner: object) -> dict[str, str]:
-        captured.update(system=system, content=content, output=output)
+    def fake_create_pdf(system: Path, content: Path, prompt: str, output: Path, planner: object, **options: object) -> dict[str, str]:
+        captured.update(system=system, content=content, output=output, **options)
         return {"status": "succeeded", "pdf": str(output)}
 
     monkeypatch.setattr(cli_module, "create_pdf", fake_create_pdf)
@@ -728,7 +766,7 @@ def test_create_design_system_automatically_renders_default_first_example(
     monkeypatch.setattr(
         cli_module,
         "create_presentation",
-        lambda system, content, prompt, output, planner: powerpoint.update(system=system, content=content, output=output) or {"status": "succeeded", "pptx": str(output)},
+        lambda system, content, prompt, output, planner, **options: powerpoint.update(system=system, content=content, output=output, **options) or {"status": "succeeded", "pptx": str(output)},
     )
     status = cli_module.main([
         "create", "design-system", "--url", "https://example.com", "--workspace", str(tmp_path),
@@ -738,6 +776,8 @@ def test_create_design_system_automatically_renders_default_first_example(
     assert captured["output"] == tmp_path / "examples" / "sample-brand-kolo-create.pdf"
     assert captured["content"].name == "kolo-create-explainer.md"
     assert powerpoint["output"] == tmp_path / "examples" / "sample-brand-kolo-create.pptx"
+    assert captured["brand_demonstration"] is True
+    assert powerpoint["brand_demonstration"] is True
 
 
 def test_source_design_system_also_renders_default_first_example(
@@ -754,8 +794,8 @@ def test_source_design_system_also_renders_default_first_example(
     )
     captured: dict[str, Path] = {}
 
-    def fake_create_pdf(system: Path, content: Path, prompt: str, output: Path, planner: object) -> dict[str, str]:
-        captured.update(system=system, output=output)
+    def fake_create_pdf(system: Path, content: Path, prompt: str, output: Path, planner: object, **options: object) -> dict[str, str]:
+        captured.update(system=system, output=output, **options)
         return {"status": "succeeded", "pdf": str(output)}
 
     monkeypatch.setattr(cli_module, "create_pdf", fake_create_pdf)
@@ -763,7 +803,7 @@ def test_source_design_system_also_renders_default_first_example(
     monkeypatch.setattr(
         cli_module,
         "create_presentation",
-        lambda system, content, prompt, output, planner: powerpoint.update(system=system, output=output) or {"status": "succeeded", "pptx": str(output)},
+        lambda system, content, prompt, output, planner, **options: powerpoint.update(system=system, output=output, **options) or {"status": "succeeded", "pptx": str(output)},
     )
     status = cli_module.main([
         "create", "design-system", "--source-dir", str(source), "--workspace", str(tmp_path),
@@ -772,6 +812,8 @@ def test_source_design_system_also_renders_default_first_example(
     assert captured["system"] == system_path
     assert captured["output"] == tmp_path / "examples" / "source-brand-kolo-create.pdf"
     assert powerpoint["output"] == tmp_path / "examples" / "source-brand-kolo-create.pptx"
+    assert captured["brand_demonstration"] is True
+    assert powerpoint["brand_demonstration"] is True
 
 
 def test_composition_uses_brand_and_content_signals() -> None:

@@ -103,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Explain Kolo Create using the composition best suited to this brand and content",
                 example_output,
                 DeterministicPlanner(),
+                brand_demonstration=True,
             )
             result["example_pdf"] = example
             presentation_output = args.example_presentation_output or (
@@ -114,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Explain Kolo Create as a concise, brand-led presentation",
                 presentation_output,
                 DeterministicPresentationPlanner(),
+                brand_demonstration=True,
             )
         elif args.command == "powerpoint":
             if args.planner == "llm":

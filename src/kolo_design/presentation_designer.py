@@ -19,6 +19,7 @@ from PIL import Image as PILImage
 from playwright.sync_api import sync_playwright
 
 from .assets import raster_dimensions, select_logo_asset
+from .brand_demonstration import media_expected, require_demonstration_assets, usable_hero_assets
 from .browser_extract import _browser_executable
 
 from .contracts import validate_design_system, validate_document_request
@@ -570,10 +571,20 @@ def create_presentation(
     prompt: str,
     output_path: Path,
     planner: PresentationPlanner | None = None,
+    *,
+    brand_demonstration: bool = False,
 ) -> dict[str, Any]:
     system = read_json(design_system_path)
     validate_design_system(system)
     render_system, rejected_images = _safe_presentation_system(system)
+    demonstration_quality = None
+    if brand_demonstration:
+        demonstration_quality = require_demonstration_assets(
+            system,
+            hero_selected=bool(usable_hero_assets(render_system)),
+            logo_selected=render_system.get("presentation_logo") is not None,
+            format_name="PowerPoint",
+        )
     content = content_path.read_text(encoding="utf-8")
     validate_document_request(content, prompt)
     blocks = source_blocks(content)
@@ -591,6 +602,7 @@ def create_presentation(
     plan["content_map"] = content_map
     plan["scene_plan"] = scene_plan
     plan["design_quality"] = design_quality
+    plan["brand_demonstration"] = brand_demonstration
     plan = apply_presentation_art_direction(system, plan, grammar, scene_plan)
     plan["layout_measurements"] = measure_presentation_layout(system, plan, blocks)
 
@@ -627,6 +639,8 @@ def create_presentation(
     slide_count = len(plan["slides"])
     repaired_content_types = _repair_content_type_targets(output_path)
     package_counts = _validate_package(output_path, slide_count, blocks)
+    if brand_demonstration and media_expected(system) and package_counts["embedded_images"] == 0:
+        raise RuntimeError("PowerPoint brand demonstration did not embed the required brand imagery")
     previews = _render_previews(preview_dir, slide_count)
     layouts = sorted(str(path) for path in preview_dir.glob("slide-*.layout.json"))
     quality = {
@@ -655,6 +669,7 @@ def create_presentation(
             "misaligned_feature_copy": package_counts["misaligned_feature_copy"],
             "supporting_rule_overlaps": package_counts["supporting_rule_overlaps"],
             "distinct_layout_variants": len({slide["variant"] for slide in plan["slides"]}),
+            "brand_demonstration": demonstration_quality,
         },
         "art_direction": plan["art_direction"],
         "design_grammar": {

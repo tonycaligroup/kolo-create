@@ -723,6 +723,10 @@ def _logo_candidates(soup: BeautifulSoup, base_url: str) -> list[tuple[int, str,
             direct_brand_logo = bool(
                 brand_hint and re.search(rf"{re.escape(brand_hint)}[-_ ]*logo", filename_hint)
             )
+            if source == "image" and not (logo_match or brand_match):
+                continue
+            if source == "og-image" and not logo_match:
+                continue
             semantic_score = (
                 170 if direct_brand_logo
                 else 160 if brand_logo_match
@@ -813,12 +817,24 @@ def _save_best_logo(
         pass
     for score, url, source in _logo_candidates(soup, base_url)[:12]:
         try:
+            if source in {"icon", "apple-touch-icon"}:
+                continue
             final_url, payload, content_type = fetch_limited(url, MAX_ASSET_BYTES, accept="image/*")
             if not payload or not (content_type.startswith("image/") or urlparse(final_url).path.lower().endswith(".svg")):
                 continue
             suffix = Path(urlparse(final_url).path).suffix.lower()
+            normalized_type = content_type.split(";", 1)[0].strip().lower()
+            if suffix in {".ico", ".cur"} or normalized_type in {
+                "image/x-icon", "image/vnd.microsoft.icon"
+            }:
+                continue
             if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}:
-                suffix = ".svg" if "svg" in content_type else ".png"
+                if "svg" in normalized_type:
+                    suffix = ".svg"
+                elif normalized_type in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+                    suffix = ".png"
+                else:
+                    continue
             target = asset_dir / f"logo{suffix}"
             atomic_write(target, payload)
             asset = {
@@ -857,6 +873,8 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
     for item in rendered.get("captured_assets", []):
         if item.get("kind") != "hero-image" or not isinstance(item.get("payload"), bytes):
             continue
+        if str(item.get("role", "main")).lower() in {"header", "nav", "navigation", "footer"}:
+            continue
         payload = item["payload"]
         suffix = Path(str(item.get("path") or ".png")).suffix.lower()
         if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
@@ -868,7 +886,9 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
             target.unlink(missing_ok=True)
             continue
         width, height = dimensions
-        semantic_text = f"{item.get('alt', '')} {item.get('text_sample', '')}".strip()
+        semantic_text = " ".join(
+            str(item.get(key, "")) for key in ("alt", "text_sample", "source_url")
+        ).strip()
         captured.append({
             "id": f"hero-{len(captured) + 1}", "kind": "hero-image", "path": str(target),
             "source_url": item.get("source_url") or rendered.get("url"),
@@ -893,8 +913,13 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
         urls: list[str] = []
         if element.get("tag") in {"img", "picture"} and element.get("src"):
             urls.append(str(element["src"]))
+        if element.get("poster"):
+            urls.append(str(element["poster"]))
+        urls.extend(str(value) for value in element.get("source_candidates", []) if value)
         background_image = str((element.get("style") or {}).get("background_image", ""))
         urls.extend(re.findall(r"url\([\"']?([^\"')]+)", background_image))
+        for pseudo_background in element.get("pseudo_background_images", []):
+            urls.extend(re.findall(r"url\([\"']?([^\"')]+)", str(pseudo_background)))
         for value in urls:
             if value.startswith(("http://", "https://")):
                 ranked.append((area, value, element))

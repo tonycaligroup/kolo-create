@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import base64
 import pytest
 import zipfile
 from pathlib import Path
@@ -9,7 +10,10 @@ from PIL import Image
 from playwright.sync_api import sync_playwright
 from pypdf import PdfReader
 
-from kolo_design.browser_extract import _browser_executable, _dismiss_overlays, _freeze_motion, _reference_pdf
+from kolo_design.browser_extract import (
+    _browser_executable, _dismiss_overlays, _freeze_motion, _has_visible_logo_pixels,
+    _reference_pdf, _remove_flat_logo_background, _visible_logo, browser_snapshot,
+)
 import kolo_design.browser_extract as browser_extract_module
 
 from kolo_design.extractor import (
@@ -93,6 +97,96 @@ def test_svg_payload_cannot_be_saved_as_a_raster_hero(tmp_path: Path, monkeypatc
 
     assert _save_hero_assets(rendered, tmp_path) == []
     assert not list(tmp_path.iterdir())
+
+
+def test_rendered_browser_asset_is_saved_without_refetch(tmp_path: Path) -> None:
+    target = io.BytesIO()
+    Image.new("RGB", (1200, 700), "navy").save(target, "PNG")
+    rendered = {
+        "url": "https://example.com/", "viewport": {"width": 1440, "height": 1100},
+        "captured_assets": [{
+            "kind": "hero-image", "path": "browser-capture-1.png", "payload": target.getvalue(),
+            "source_url": "https://example.com/hero-video", "alt": "Rendered launch frame", "score": 80,
+        }],
+        "elements": [],
+    }
+    saved = _save_hero_assets(rendered, tmp_path)
+    assert len(saved) == 1
+    assert saved[0]["source"] == "kolo-visible-browser-capture"
+    assert saved[0]["pixel_width"] == 1200
+
+
+def test_header_capture_is_not_promoted_to_hero_media(tmp_path: Path) -> None:
+    target = io.BytesIO()
+    Image.new("RGB", (1200, 280), "black").save(target, "PNG")
+    rendered = {
+        "url": "https://example.com/", "viewport": {"width": 1440, "height": 1100},
+        "captured_assets": [{
+            "kind": "hero-image", "path": "browser-capture-1.png", "payload": target.getvalue(),
+            "source_url": "https://example.com/", "role": "header", "score": 25,
+        }],
+        "elements": [],
+    }
+    assert _save_hero_assets(rendered, tmp_path) == []
+
+
+def test_blank_logo_raster_is_rejected() -> None:
+    blank = io.BytesIO()
+    Image.new("RGBA", (200, 60), (0, 0, 0, 0)).save(blank, "PNG")
+    assert not _has_visible_logo_pixels(blank.getvalue())
+
+
+def test_flat_header_background_is_removed_from_logo_capture() -> None:
+    source = Image.new("RGBA", (208, 52), "black")
+    for x in range(24, 180):
+        for y in range(18, 34):
+            source.putpixel((x, y), (255, 255, 255, 255))
+    target = io.BytesIO()
+    source.save(target, "PNG")
+    cleaned = _remove_flat_logo_background(target.getvalue())
+    with Image.open(io.BytesIO(cleaned)).convert("RGBA") as result:
+        assert result.size == (156, 16)
+        assert result.getpixel((0, 0))[3] == 255
+
+
+def test_unlabeled_page_images_are_not_logo_candidates() -> None:
+    soup = BeautifulSoup(
+        "<meta property='og:image' content='/hero.webp'><img src='/satellite.webp'>",
+        "html.parser",
+    )
+    assert _logo_candidates(soup, "https://spacex.com/") == []
+
+
+@pytest.mark.skipif(_browser_executable() is None, reason="Chromium is required")
+def test_visible_logo_capture_has_document_density() -> None:
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=_browser_executable(), headless=True)
+        page = browser.new_page(viewport={"width": 1000, "height": 600})
+        page.set_content(
+            "<svg width='0' height='0'><defs><symbol id='wordmark' viewBox='0 0 52 13'>"
+            "<rect width='52' height='13' fill='#111'/><rect x='4' y='4' width='25' height='5' fill='#fff'/>"
+            "</symbol></defs></svg><header><a href='https://shop.acme.com' aria-label='Go to the Acme shop'>Acme</a>"
+            "<a href='/' aria-label='Acme logo'>"
+            "<svg width='52' height='13' viewBox='0 0 52 13'><use href='#wordmark'/></svg></a></header>"
+        )
+        logo = _visible_logo(page, "https://acme.com/")
+        assert logo is not None
+        with Image.open(io.BytesIO(logo["png"])) as captured:
+            assert captured.width >= 150
+            assert captured.height >= 36
+        browser.close()
+
+
+@pytest.mark.skipif(_browser_executable() is None, reason="Chromium is required")
+def test_browser_snapshot_captures_large_css_background_as_rendered_asset() -> None:
+    html = """<!doctype html><title>Launch</title><style>
+    body{margin:0;background:#000;color:#fff}main{height:1100px}.hero{width:100vw;height:720px;
+    background:linear-gradient(135deg,#071b33,#9aa8b6)}h1{padding:80px;font:64px Arial}
+    </style><main><section class='hero'><h1>Launch systems for orbit</h1></section></main>"""
+    url = "data:text/html;base64," + base64.b64encode(html.encode()).decode()
+    snapshot = browser_snapshot(url, allow_local=True)
+    assert snapshot is not None
+    assert any(asset.get("capture_kind") == "rendered-element" for asset in snapshot["captured_assets"])
 
 
 def test_consent_cleanup_removes_orphaned_fullscreen_backdrop() -> None:

@@ -148,6 +148,7 @@ def _asset_semantics(asset: dict[str, Any]) -> set[str]:
 
 def _cover_media(
     system: dict[str, Any], minimum_density: float, context: str, *, allow_unlabeled: bool = False,
+    brand_demonstration: bool = False,
 ) -> dict[str, Any]:
     context_terms = _terms(context)
     candidates: list[tuple[float, dict[str, Any]]] = []
@@ -171,9 +172,9 @@ def _cover_media(
             semantic_terms = _asset_semantics(asset)
             overlap = context_terms & semantic_terms
             relevance = len(overlap) / max(1, min(5, len(context_terms)))
-            if semantic_terms and not overlap:
+            if semantic_terms and not overlap and not brand_demonstration:
                 continue
-            if not semantic_terms and not allow_unlabeled:
+            if not semantic_terms and not allow_unlabeled and not brand_demonstration:
                 continue
             candidate = {
                 "component": "media-band",
@@ -184,7 +185,11 @@ def _cover_media(
                 "effective_density": round(density, 2),
                 "semantic_relevance": round(relevance, 2),
                 "matched_terms": sorted(overlap),
-                "reason": "content-matched brand media" if overlap else "unlabeled media allowed by explicit image-led prompt",
+                "reason": (
+                    "content-matched brand media" if overlap
+                    else "signature brand media selected for automatic brand demonstration" if brand_demonstration
+                    else "unlabeled media allowed by explicit image-led prompt"
+                ),
             }
             candidates.append((relevance * 100 + float(asset.get("score", 0)) / 10 + density, candidate))
     if candidates:
@@ -200,6 +205,7 @@ def _cover_media(
 
 def select_component_plan(
     system: dict[str, Any], plan: dict[str, Any], blocks: list[dict[str, str]], prompt: str = "",
+    *, brand_demonstration: bool = False,
 ) -> dict[str, Any]:
     """Select a restrained set of brand components for exact document regions."""
     library = _component_library(system)
@@ -257,7 +263,10 @@ def select_component_plan(
         "schema_version": 1,
         "preferred_renderer": library.get("preferred_renderer", "reportlab"),
         "library": library,
-        "cover": _cover_media(system, minimum_density, context, allow_unlabeled=explicit_image_prompt),
+        "cover": _cover_media(
+            system, minimum_density, context, allow_unlabeled=explicit_image_prompt,
+            brand_demonstration=brand_demonstration,
+        ),
         "sections": sections,
     }
 

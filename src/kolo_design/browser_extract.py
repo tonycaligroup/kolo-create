@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import os
 from pathlib import Path
@@ -34,6 +35,46 @@ def _trim_transparent_png(payload: bytes) -> bytes:
             target = io.BytesIO()
             cropped.save(target, "PNG", optimize=True)
             return target.getvalue()
+    except (OSError, ValueError):
+        return payload
+
+
+def _has_visible_logo_pixels(payload: bytes) -> bool:
+    """Reject blank SVG-use rasterizations before accepting them as logos."""
+    try:
+        with PILImage.open(io.BytesIO(payload)) as source:
+            rgba = source.convert("RGBA")
+            rgba.thumbnail((300, 120))
+            pixels = rgba.get_flattened_data() if hasattr(rgba, "get_flattened_data") else rgba.getdata()
+            visible = [pixel for pixel in pixels if pixel[3] >= 24]
+            if len(visible) < 12:
+                return False
+            colors = {(red // 16, green // 16, blue // 16, alpha // 32) for red, green, blue, alpha in visible}
+            return len(colors) >= 2 or len(visible) >= 80
+    except (OSError, ValueError):
+        return False
+
+
+def _remove_flat_logo_background(payload: bytes, tolerance: int = 18) -> bytes:
+    """Make a flat header field transparent while preserving its visible mark."""
+    try:
+        with PILImage.open(io.BytesIO(payload)) as source:
+            rgba = source.convert("RGBA")
+            corners = [
+                rgba.getpixel((0, 0)), rgba.getpixel((rgba.width - 1, 0)),
+                rgba.getpixel((0, rgba.height - 1)), rgba.getpixel((rgba.width - 1, rgba.height - 1)),
+            ]
+            background = max(set(corners), key=corners.count)
+            if corners.count(background) < 3:
+                return payload
+            pixels = []
+            for red, green, blue, alpha in rgba.get_flattened_data():
+                distance = max(abs(red - background[0]), abs(green - background[1]), abs(blue - background[2]))
+                pixels.append((red, green, blue, 0 if distance <= tolerance else alpha))
+            rgba.putdata(pixels)
+            target = io.BytesIO()
+            rgba.save(target, "PNG", optimize=True)
+            return _trim_transparent_png(target.getvalue())
     except (OSError, ValueError):
         return payload
 
@@ -407,6 +448,30 @@ def _rasterize_svg_on_page(page: Any, payload: str) -> bytes | None:
         render_context.close()
 
 
+def _high_density_element_screenshot(page: Any, candidate: Any, scale: float = 4) -> bytes | None:
+    """Capture a small rendered wordmark sharply enough for document output."""
+    original_style = candidate.get_attribute("style")
+    try:
+        candidate.evaluate(
+            "(el, scale) => { el.style.zoom = String(scale); el.style.transformOrigin = 'top left'; }",
+            scale,
+        )
+        page.wait_for_timeout(30)
+        return _remove_flat_logo_background(
+            candidate.screenshot(type="png", omit_background=True, timeout=5_000)
+        )
+    except Exception:
+        return None
+    finally:
+        try:
+            candidate.evaluate(
+                "(el, style) => style === null ? el.removeAttribute('style') : el.setAttribute('style', style)",
+                original_style,
+            )
+        except Exception:
+            pass
+
+
 def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
     """Capture the strongest visible header/nav wordmark before metadata images."""
     brand = (urlparse(base_url).hostname or "").lower().removeprefix("www.").split(".")[0]
@@ -428,7 +493,10 @@ def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
                   const aria = (el.getAttribute('aria-label') || owner?.getAttribute('aria-label') || '').trim().toLowerCase();
                   const inHeader = Boolean(el.closest('header,nav'));
                   const homeLink = Boolean(el.closest('a[href="/"],a[href$=".com/"],a[href$=".ai/"]'));
-                  const exactBrandText = Boolean(brand && (text === brand || aria === brand || aria === `${brand} logo`));
+                  const utilityLink = /(shop|store|careers|privacy|supplier|updates|support|page|go to)/i.test(aria);
+                  const exactBrandText = Boolean(
+                    brand && !utilityLink && (aria === brand || aria === `${brand} logo` || (text === brand && homeLink))
+                  );
                   return {
                     visible: r.width >= (exactBrandText ? 10 : 35) && r.height >= 12 && r.width <= 500 && r.height <= 180 &&
                       s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || 1) > 0 && r.bottom > 0 && r.top < innerHeight,
@@ -458,10 +526,15 @@ def _visible_logo(page: Any, base_url: str) -> dict[str, Any] | None:
             continue
     for score, candidate, info in sorted(ranked, key=lambda item: item[0], reverse=True):
         try:
-            payload = (
-                _rasterize_svg_on_page(page, str(info["svg"]))
-                if info.get("svg") else None
-            ) or _trim_transparent_png(candidate.screenshot(type="png", omit_background=True))
+            payload = _rasterize_svg_on_page(page, str(info["svg"])) if info.get("svg") else None
+            if not payload or not _has_visible_logo_pixels(payload):
+                descendants = candidate.locator("svg,img")
+                capture_candidate = descendants.first if descendants.count() else candidate
+                payload = _high_density_element_screenshot(page, capture_candidate)
+            if not payload or not _has_visible_logo_pixels(payload):
+                payload = _trim_transparent_png(capture_candidate.screenshot(type="png", omit_background=True))
+            if not _has_visible_logo_pixels(payload):
+                continue
             return {
                 "png": payload,
                 "score": score,
@@ -561,6 +634,7 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
                   }).slice(0, 5000);
                   const rows = visible.map((el) => {
                     const s = getComputedStyle(el), r = el.getBoundingClientRect();
+                    const before = getComputedStyle(el, '::before'), after = getComputedStyle(el, '::after');
                     return [
                       `color:${s.color}`, `background-color:${s.backgroundColor}`, `border-color:${s.borderColor}`,
                       `font-family:${s.fontFamily}`, `font-size:${s.fontSize}`, `font-weight:${s.fontWeight}`,
@@ -568,30 +642,48 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
                       `padding-top:${s.paddingTop}`, `padding-right:${s.paddingRight}`, `padding-bottom:${s.paddingBottom}`, `padding-left:${s.paddingLeft}`,
                       `margin-top:${s.marginTop}`, `margin-right:${s.marginRight}`, `margin-bottom:${s.marginBottom}`, `margin-left:${s.marginLeft}`,
                       `gap:${s.gap}`, `border-radius:${s.borderRadius}`, `box-shadow:${s.boxShadow}`,
-                      `width:${Math.round(r.width)}px`, `max-width:${s.maxWidth}`
+                      `width:${Math.round(r.width)}px`, `max-width:${s.maxWidth}`,
+                      `before-background-image:${before.backgroundImage}`, `after-background-image:${after.backgroundImage}`
                     ].join(';');
                   });
                   const viewportArea = Math.max(1, innerWidth * innerHeight);
-                  const elements = visible.slice(0, 1800).map((el) => {
+                  const elements = visible.slice(0, 1800).map((el, index) => {
                     const s = getComputedStyle(el), r = el.getBoundingClientRect();
+                    const before = getComputedStyle(el, '::before'), after = getComputedStyle(el, '::after');
                     const clippedWidth = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0));
                     const clippedHeight = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+                    const areaRatio = Math.round((clippedWidth * clippedHeight / viewportArea) * 10000) / 10000;
+                    const tag = el.tagName.toLowerCase();
+                    const sourceCandidates = [...el.querySelectorAll('source')].flatMap((source) => {
+                      const values = [source.src, source.getAttribute('src') || '', source.getAttribute('srcset') || ''];
+                      return values.flatMap((value) => value.split(',').map((part) => part.trim().split(/\\s+/)[0])).filter(Boolean);
+                    }).slice(0, 12);
+                    const pseudoBackgrounds = [before.backgroundImage, after.backgroundImage]
+                      .filter((value) => value && value !== 'none');
+                    const captureable = ['img', 'picture', 'video'].includes(tag)
+                      || (s.backgroundImage && s.backgroundImage !== 'none') || pseudoBackgrounds.length > 0;
+                    const captureKey = captureable && areaRatio >= .08 ? `asset-${index}` : '';
+                    if (captureKey) el.setAttribute('data-kolo-capture-key', captureKey);
                     const region = el.closest('[role="dialog"],dialog,header,nav,main,footer,section,article,aside');
                     const hint = [el.id, el.className, el.getAttribute('role'), el.getAttribute('aria-label')]
                       .filter((value) => typeof value === 'string').join(' ').toLowerCase();
                     const overlayHint = /(cookie|consent|privacy|modal|dialog|overlay|tracking|preference)/.test(hint);
                     const overlayPosition = ['fixed', 'sticky'].includes(s.position) && clippedWidth * clippedHeight > viewportArea * 0.08;
                     return {
-                      tag: el.tagName.toLowerCase(),
+                      tag,
                       role: el.getAttribute('role') || '',
                       href: Boolean(el.getAttribute('href')),
                       src: el.currentSrc || el.getAttribute('src') || '',
+                      poster: el.poster || el.getAttribute('poster') || '',
+                      source_candidates: sourceCandidates,
+                      pseudo_background_images: pseudoBackgrounds,
+                      capture_key: captureKey,
                       alt: el.getAttribute('alt') || '',
                       text_sample: (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ').slice(0, 80),
                       rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
                       viewport: {
                         visible: clippedWidth > 0 && clippedHeight > 0,
-                        area_ratio: Math.round((clippedWidth * clippedHeight / viewportArea) * 10000) / 10000
+                        area_ratio: areaRatio
                       },
                       semantic: {
                         region: region ? (region.getAttribute('role') || region.tagName.toLowerCase()) : 'body',
@@ -628,6 +720,36 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
             snapshot["overlay_actions"] = overlay_actions
             snapshot["visible_logo"] = visible_logo
             snapshot["screenshot"] = page.screenshot(full_page=False, type="png")
+            captured_assets: list[dict[str, Any]] = []
+            seen_captures: set[str] = set()
+            capture_candidates = sorted(
+                (item for item in snapshot["elements"] if item.get("capture_key")),
+                key=lambda item: float((item.get("viewport") or {}).get("area_ratio", 0)),
+                reverse=True,
+            )
+            for item in capture_candidates:
+                try:
+                    locator = page.locator(f'[data-kolo-capture-key="{item["capture_key"]}"]').first
+                    payload = locator.screenshot(type="png", omit_background=False, timeout=5_000)
+                    digest = hashlib.sha256(payload).hexdigest()
+                    if digest in seen_captures:
+                        continue
+                    seen_captures.add(digest)
+                    captured_assets.append({
+                        "kind": "hero-image", "path": f"browser-capture-{len(captured_assets) + 1}.png",
+                        "payload": payload, "media_type": "image/png",
+                        "source_url": item.get("poster") or item.get("src") or snapshot_url,
+                        "alt": item.get("alt", ""), "text_sample": item.get("text_sample", ""),
+                        "role": str((item.get("semantic") or {}).get("region", "main")),
+                        "score": round(float((item.get("viewport") or {}).get("area_ratio", 0)) * 100, 2),
+                        "capture_kind": "rendered-element",
+                        "capture_tag": item.get("tag"),
+                    })
+                    if len(captured_assets) >= 6:
+                        break
+                except (PlaywrightError, PlaywrightTimeoutError):
+                    continue
+            snapshot["captured_assets"] = captured_assets
             reference_pdf, reference_pdf_metadata = _reference_pdf(
                 page, viewport_screenshot=snapshot["screenshot"]
             )

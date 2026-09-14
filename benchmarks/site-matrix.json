@@ -1,0 +1,20 @@
+{
+  "schema": "kolo.site-benchmark/v1",
+  "captured_baselines_required": true,
+  "sites": [
+    {"id": "spacex", "url": "https://www.spacex.com/", "expected_modes": ["media-led"], "hazards": ["video", "svg-logo", "dark-monochrome"]},
+    {"id": "apple", "url": "https://www.apple.com/", "expected_modes": ["product-led", "media-led"], "hazards": ["picture-srcset", "retina-assets", "mixed-light-dark"]},
+    {"id": "redbull", "url": "https://www.redbull.com/us-en", "expected_modes": ["media-led"], "hazards": ["multi-color", "carousel", "dense-editorial"]},
+    {"id": "mailchimp", "url": "https://mailchimp.com/", "expected_modes": ["illustration-led"], "hazards": ["custom-type", "illustration", "irregular-shapes"]},
+    {"id": "stripe", "url": "https://stripe.com/", "expected_modes": ["interface-led", "media-led"], "hazards": ["gradients", "pseudo-elements", "interface-graphics"]},
+    {"id": "ikea", "url": "https://www.ikea.com/us/en/", "expected_modes": ["product-led"], "hazards": ["dense-commerce", "product-grid", "strong-dual-palette"]},
+    {"id": "duolingo", "url": "https://www.duolingo.com/", "expected_modes": ["illustration-led"], "hazards": ["svg", "animation", "rounded-depth"]},
+    {"id": "notion", "url": "https://www.notion.com/product", "expected_modes": ["interface-led", "illustration-led"], "hazards": ["monochrome", "line-art", "ui-screenshots"]},
+    {"id": "patagonia", "url": "https://www.patagonia.com/home/", "expected_modes": ["media-led"], "hazards": ["documentary-photography", "editorial-commerce", "earth-tones"]},
+    {"id": "medicube", "url": "https://medicube.us/", "expected_modes": ["product-led"], "hazards": ["pale-contrast", "shopify-overlays", "beauty-commerce"]}
+  ],
+  "negative_controls": [
+    {"id": "tesla-blocked", "url": "https://www.tesla.com/", "expected_result": "pass-or-browser-evidence-required"},
+    {"id": "placeholder-page", "expected_result": "source-fidelity-rejection"}
+  ]
+}

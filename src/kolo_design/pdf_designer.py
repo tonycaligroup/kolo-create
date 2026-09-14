@@ -19,6 +19,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.platypus import CondPageBreak, Flowable, HRFlowable, Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .assets import select_logo_asset
+from .brand_demonstration import require_demonstration_assets
 from .brand_components import select_component_plan, validate_component_plan
 from .composition import select_composition, validate_composition
 from .content_map import build_content_map, validate_content_map
@@ -264,6 +265,8 @@ def create_pdf(
     prompt: str,
     output_path: Path,
     planner: DocumentPlanner | None = None,
+    *,
+    brand_demonstration: bool = False,
 ) -> dict[str, Any]:
     system = read_json(design_system_path)
     validate_design_system(system)
@@ -288,7 +291,9 @@ def create_pdf(
     )
     validate_scene_plan(plan["scene_plan"], blocks)
     plan["design_quality"] = evaluate_design_plan(plan["design_grammar"], plan["scene_plan"])
-    plan["component_plan"] = select_component_plan(system, plan, blocks, prompt)
+    plan["component_plan"] = select_component_plan(
+        system, plan, blocks, prompt, brand_demonstration=brand_demonstration
+    )
     validate_component_plan(plan["component_plan"])
     family = plan["composition"]["family"]
     component_plan = plan["component_plan"]
@@ -358,11 +363,19 @@ def create_pdf(
     card_padding = _number(base * 3, 12, 9, 20)
     section_padding = _number(base * 4, 16, 12, 26)
     section_background = _recipe_color(section_recipe.get("background"), palette["surface"])
-    logo_asset = None if (system.get("visual_language") or {}).get("primary_mode") == "typography-led" else select_logo_asset(
+    logo_asset = None if (
+        not brand_demonstration and (system.get("visual_language") or {}).get("primary_mode") == "typography-led"
+    ) else select_logo_asset(
         system, allow_svg=False, max_width=1.5 * inch, max_height=0.65 * inch,
     )
     cover_asset_id = component_plan["cover"].get("asset_id")
     hero_asset = next((asset for asset in system["assets"] if asset.get("id") == cover_asset_id), None)
+    demonstration_quality = None
+    if brand_demonstration:
+        demonstration_quality = require_demonstration_assets(
+            system, hero_selected=hero_asset is not None, logo_selected=logo_asset is not None,
+            format_name="PDF",
+        )
 
     output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1052,6 +1065,7 @@ def create_pdf(
             "inline_markdown_resolved": not unresolved_markdown,
             "tofu_glyphs_absent": not tofu_found,
             "previews_rendered": bool(previews),
+            "brand_demonstration": demonstration_quality,
         },
         "normalization": {"unsupported_emoji_removed": removed_emoji_count},
         "previews": previews,

@@ -245,7 +245,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
   prepareSlide(slide, background);
 
   if (planSlide.archetype === "cover") {
-    const useMedia = media.length > 0 && (system.visual_language?.media_coverage || 0) >= .15;
+    const useMedia = media.length > 0 && ((system.visual_language?.media_coverage || 0) >= .15 || spec.plan.brand_demonstration);
     if (designProfile === "editorial") {
       const field = contrast(accent, palette.text) >= 4.5 ? accent : background;
       const onField = readable(field, palette.text);

@@ -75,6 +75,10 @@ kolo-design create design-system --browser-evidence "../tesla-browser-evidence" 
 
 Every website source passes a deterministic fidelity gate before extraction. Error pages, access blocks, bot challenges, and materially empty captures stop with `browser_evidence_required`; Kolo can then capture the real page from its shared visible Chromium session and import a bounded evidence directory or ZIP. See [`references/browser-evidence.md`](references/browser-evidence.md). The evidence bundle intentionally excludes cookies, headers, local storage, and browser history.
 
+The browser also preserves rendered frames from large video, picture, CSS-background, and pseudo-element regions. Automatic examples run in a dedicated brand-demonstration mode, allowing one signature brand image even when the Kolo Create explainer does not share its subject. Normal documents still require semantic media relevance. Media-led automatic examples fail QA when they contain no usable brand imagery.
+
+The maintained ten-site coverage matrix is [`benchmarks/site-matrix.json`](benchmarks/site-matrix.json). Freeze approved evidence bundles for deterministic regressions and run the listed URLs separately as changing live canaries.
+
 The comparison command evaluates two renderers without paying for two planning calls. It produces the current ReportLab PDF and a candidate HTML/CSS document and PDF from one validated plan, runs DOM overflow and grid-alignment checks, and generates side-by-side page previews plus a comparison manifest. ReportLab remains the default while repeated review determines which browser patterns deserve promotion.
 
 Every successful design-system command automatically renders the bundled Kolo Create explainer to `<workspace>/examples/<brand-id>-kolo-create.pdf` and `<workspace>/examples/<brand-id>-kolo-create.pptx`. `--example-output` and `--example-presentation-output` optionally override those destinations; they do not enable the behavior. The two stages remain separate internally, but these automatic first artifacts make every extraction immediately comparable without a model call.
