@@ -25,6 +25,7 @@ from .contracts import validate_design_system, validate_document_request
 from .planner import source_blocks
 from .presentation_planner import DeterministicPresentationPlanner, PresentationPlanner, validate_presentation_plan
 from .presentation_art_direction import apply_presentation_art_direction
+from .presentation_layout import measure_presentation_layout
 from .util import read_json, sha256_bytes, write_json
 
 
@@ -515,6 +516,7 @@ def create_presentation(
     plan = planner.plan(content, prompt, blocks)
     validate_presentation_plan(plan, blocks)
     plan = apply_presentation_art_direction(system, plan)
+    plan["layout_measurements"] = measure_presentation_layout(system, plan, blocks)
 
     output_path = output_path.resolve()
     if output_path.suffix.lower() != ".pptx":
@@ -578,6 +580,11 @@ def create_presentation(
             "distinct_layout_variants": len({slide["variant"] for slide in plan["slides"]}),
         },
         "art_direction": plan["art_direction"],
+        "layout_measurement": {
+            "engine": plan["layout_measurements"]["engine"],
+            "request_count": plan["layout_measurements"]["request_count"],
+            "model_calls": 0,
+        },
         "brand_mark": {
             "asset_id": (render_system.get("presentation_logo") or {}).get("id"),
             "format": Path(str((render_system.get("presentation_logo") or {}).get("path", ""))).suffix.lower() or None,

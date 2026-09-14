@@ -372,26 +372,55 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, detail, x + 40, y + 62, 260, 58, 14, ink, { body: true, vertical: "top" });
       });
     } else if (profile === "kinetic" && bullets.length >= 3) {
+      const measuredCards = new Map(
+        (planSlide && spec.plan.layout_measurements?.slides?.[planSlide.id]?.cards || [])
+          .map(card => [Number(card.index), card])
+      );
+      const cardLayouts = bullets.map((block, itemIndex) => {
+        const lead = itemIndex === 0;
+        const measured = measuredCards.get(itemIndex) || {};
+        const labelHeight = Math.max(lead ? 36 : 24, Number(measured.label_height || 0) + 4);
+        const detailHeight = Math.max(lead ? 25 : 19, Number(measured.detail_height || 0) + 4);
+        const labelOffset = lead ? 58 : alternate ? 45 : 58;
+        const detailOffset = lead
+          ? Math.max(152, labelOffset + labelHeight + 16)
+          : labelOffset + labelHeight + (alternate ? 8 : 10);
+        const minimumHeight = lead ? (alternate ? 424 : 310) : (alternate ? 120 : 148);
+        const bottomPadding = lead ? 24 : alternate ? 16 : 24;
+        return {
+          lead, labelHeight, detailHeight, labelOffset, detailOffset,
+          height: Math.max(minimumHeight, detailOffset + detailHeight + bottomPadding),
+        };
+      });
+      const smallCards = cardLayouts.slice(1);
+      const regionTop = alternate ? 190 : 246;
+      const regionHeight = alternate ? 424 : 360;
+      const smallHeight = smallCards.reduce((total, card) => total + card.height, 0);
+      const smallGap = smallCards.length > 1
+        ? Math.max(12, Math.min(20, Math.floor((regionHeight - smallHeight) / (smallCards.length - 1))))
+        : 0;
+      let smallTop = regionTop;
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text);
-        const lead = itemIndex === 0;
+        const layout = cardLayouts[itemIndex];
+        const lead = layout.lead;
         const x = lead ? (alternate ? 738 : 72) : (alternate ? 72 : 600);
-        const y = alternate ? (lead ? 213 : 213 + (itemIndex - 1) * 132) : (lead ? 246 : 246 + (itemIndex - 1) * 168);
+        const y = lead ? regionTop : smallTop;
         const width = lead ? 470 : 590;
-        const height = alternate ? (lead ? 396 : 120) : (lead ? 310 : 148);
+        const height = layout.height;
         const fill = lead ? dark : background; const color = readable(fill, ink);
         const inset = 32;
         const ruleTop = y + (alternate && !lead ? 20 : 24);
-        const labelTop = y + (alternate && !lead ? 45 : 58);
-        const detailTop = y + (lead ? 152 : alternate ? 78 : 98);
-        const detailHeight = lead ? 120 : alternate ? 34 : 38;
+        const labelTop = y + layout.labelOffset;
+        const detailTop = y + layout.detailOffset;
         addRect(slide, x, y, width, height, fill, 8, null,
           { shadow: true, name: `feature-card-${itemIndex + 1}` });
         addRule(slide, x + inset, ruleTop, lead ? 150 : 110, itemIndex % 2 ? secondary : accent, 5);
-        addText(slide, label, x + inset, labelTop, width - inset * 2, lead ? 74 : 30, lead ? 23 : 19, color,
+        addText(slide, label, x + inset, labelTop, width - inset * 2, layout.labelHeight, lead ? 23 : 19, color,
           { bold: true, vertical: "top", name: `feature-card-title-${itemIndex + 1}` });
-        addText(slide, detail, x + inset, detailTop, width - inset * 2, detailHeight, lead ? 16 : 12, color,
+        addText(slide, detail, x + inset, detailTop, width - inset * 2, layout.detailHeight, lead ? 16 : 12, color,
           { body: true, vertical: "top", name: `feature-card-copy-${itemIndex + 1}` });
+        if (!lead) smallTop += height + smallGap;
       });
     } else if (profile === "monochrome") {
       bullets.forEach((block, itemIndex) => {

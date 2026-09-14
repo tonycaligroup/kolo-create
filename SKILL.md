@@ -2,7 +2,7 @@
 name: kolo-create
 description: Create a reusable design system from a public website or renderable frontend source, then use that saved system with user-supplied text and a design prompt to produce a polished PDF or editable PowerPoint. Use when a user wants to capture brand language, generate branded documents or presentations, refresh a saved brand, or reuse a brand across formats.
 metadata:
-  version: "0.15.4"
+  version: "0.16.0"
 ---
 
 # Kolo Create
@@ -10,7 +10,7 @@ metadata:
 Marketplace compatibility value:
 
 ```yaml
-version: 0.15.4
+version: 0.16.0
 ```
 
 Kolo Create is one skill with two explicit stages. Never collapse the stages into one hidden operation: extraction creates a reusable versioned design system; artifact generation consumes an exact saved version without recrawling or modifying it.
@@ -72,6 +72,8 @@ uv run --project /home/node/.openclaw/workspace-main/skills/kolo-create kolo-des
 ```
 
 Run `npm install --ignore-scripts` in the skill directory during installation so the pinned PptxGenJS runtime lives under persistent `/home/node`; never install it globally. Set `KOLO_PRESENTATION_NODE` only when `node` is not on `PATH`. The deterministic slide planner makes no model calls, preserves every stable source block exactly once, and assigns discrete cover, statement, process, feature-list, section, image-led, or closing roles. The renderer creates a 16:9 deck with editable text, shapes, and images, uses each selected image only once, and chooses Office-safe typography according to the extracted serif or sans-serif role. It returns the PPTX, slide plan, per-slide PNG previews and layout exports, a quality report, and the exact design-system version.
+
+Before assigning PowerPoint geometry, measure adaptive component text in Chromium using the final font, weight, size, line height, and available width. Components hug the measured content within declared minimum sizes and protected padding, then solve sibling positions from those results. This deterministic measurement pass makes no model calls. Fail generation when text crosses component padding, overlaps another frame, or enters a protected footer zone.
 
 Use the selected extracted logo as a compositional brand mark on covers, signoffs, and restrained page furniture. Prefer a self-contained safe SVG. Otherwise require enough raster density for the intended size. Preserve the mark's aspect ratio and clear space, add a flat contrast field only when the slide would make the original mark unreadable, and use a text name only when no usable logo exists.
 

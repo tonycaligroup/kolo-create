@@ -32,6 +32,7 @@ from kolo_design.pdf_designer import (
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
 from kolo_design.presentation_planner import DeterministicPresentationPlanner, validate_presentation_plan
 from kolo_design.presentation_art_direction import apply_presentation_art_direction, presentation_profile
+from kolo_design.presentation_layout import measure_presentation_layout
 from kolo_design.presentation_designer import (
     _normalize_presentation_images,
     _safe_presentation_system,
@@ -294,6 +295,28 @@ def test_presentation_art_direction_assigns_inspectable_variants() -> None:
     directed = apply_presentation_art_direction(system, plan)
     assert directed["art_direction"]["profile"] == "editorial"
     assert [slide["variant"] for slide in directed["slides"]] == ["editorial-poster", "editorial-signoff"]
+
+
+@pytest.mark.skipif(not _browser_executable(), reason="Chromium is required for text measurement")
+def test_presentation_layout_measures_wrapped_card_copy() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    plan = {
+        "art_direction": {"profile": "kinetic"},
+        "slides": [{
+            "id": "slide-01", "archetype": "feature-list", "block_ids": ["b001"],
+        }],
+    }
+    blocks = [{
+        "id": "b001", "kind": "bullet",
+        "text": "Measured card: This deliberately long description must wrap across multiple rendered lines so the card can hug its actual contents.",
+    }]
+    measured = measure_presentation_layout(system, plan, blocks)
+    card = measured["slides"]["slide-01"]["cards"][0]
+
+    assert measured["engine"] == "chromium-dom/1"
+    assert measured["request_count"] == 2
+    assert card["detail_lines"] >= 2
+    assert card["detail_height"] > 19
 
 
 @pytest.mark.skipif(not (Path(__file__).parents[1] / "node_modules" / "pptxgenjs").is_dir(), reason="run npm install for presentation tests")
