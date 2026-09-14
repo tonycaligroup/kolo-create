@@ -51,6 +51,10 @@ def _recipe_color(value: Any, fallback: str) -> colors.Color:
     return colors.HexColor(value if isinstance(value, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", value) else fallback)
 
 
+def _recipe_color_hex(value: Any, fallback: str) -> str:
+    return value.upper() if isinstance(value, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", value) else fallback.upper()
+
+
 def _contrast_ratio(left: str, right: str) -> float:
     def luminance(value: str) -> float:
         channels = []
@@ -449,24 +453,22 @@ def create_pdf(
         canvas.saveState()
         canvas.setFillColor(background)
         canvas.rect(0, 0, width, height, stroke=0, fill=1)
+        marker_width = {
+            "editorial_narrative": 0.9 * inch,
+            "asymmetric_feature_grid": 1.8 * inch,
+            "numbered_process": 1.15 * inch,
+            "product_showcase": 1.45 * inch,
+        }.get(family, 1.05 * inch)
+        marker_x = 0.72 * inch
+        marker_y = height - 0.34 * inch
         canvas.setFillColor(accent)
         if dual_marker:
             share = float(marker_recipe.get("primary_share", 0.72))
-            canvas.rect(0, height - 7, width * share, 7, stroke=0, fill=1)
+            canvas.rect(marker_x, marker_y, marker_width * share, 5, stroke=0, fill=1)
             canvas.setFillColor(accent_secondary)
-            canvas.rect(width * share, height - 7, width * (1 - share), 7, stroke=0, fill=1)
-        elif family == "editorial_narrative":
-            canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
-        elif family == "asymmetric_feature_grid":
-            canvas.rect(0, height - 12, width * 0.64, 12, stroke=0, fill=1)
-            canvas.setFillColor(accent_secondary)
-            canvas.rect(width * 0.64, height - 12, width * 0.36, 12, stroke=0, fill=1)
-        elif family == "numbered_process":
-            canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
-        elif family == "product_showcase":
-            canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
+            canvas.rect(marker_x + marker_width * share, marker_y, marker_width * (1 - share), 5, stroke=0, fill=1)
         else:
-            canvas.rect(0, height - 7, width, 7, stroke=0, fill=1)
+            canvas.rect(marker_x, marker_y, marker_width, 5, stroke=0, fill=1)
         if doc.page == 1:
             if component_plan["cover"]["placement"] == "none":
                 draw_type_led_motif(canvas)
@@ -520,13 +522,13 @@ def create_pdf(
         )
         story.extend([
             Paragraph(_inline_markdown(plan["title"]), product_cover),
-            brand_rule(content_width * 0.24, 5), Spacer(1, base * 3),
+            Spacer(1, base * 3),
             cover_subtitle,
         ])
     elif family == "modular_announcement":
         story.extend([
             cover_title,
-            HRFlowable(width="22%", thickness=4, color=accent, spaceBefore=0, spaceAfter=base * 3, hAlign="LEFT"),
+            Spacer(1, base * 3),
             cover_subtitle,
         ])
     elif family == "asymmetric_feature_grid" and hero_asset:
@@ -542,15 +544,12 @@ def create_pdf(
         )
         story.extend([
             Paragraph(_inline_markdown(plan["title"]), open_cover),
-            brand_rule(content_width * 0.2, 5), Spacer(1, base * 3), cover_subtitle,
+            Spacer(1, base * 3), cover_subtitle,
         ])
     else:
         story.extend([
             cover_title,
-            HRFlowable(
-                width="18%", thickness=5, color=accent, spaceBefore=0, spaceAfter=base * 3,
-                hAlign="CENTER" if cover_alignment == TA_CENTER else "RIGHT" if cover_alignment == TA_RIGHT else "LEFT",
-            ),
+            Spacer(1, base * 3),
             cover_subtitle,
         ])
     if logo_asset and Path(logo_asset["path"]).exists():
@@ -613,10 +612,17 @@ def create_pdf(
             component_usage["standard_blocks"] += 1
         elif kind == "callout":
             callout_radius = 0 if family == "numbered_process" else card_radius
-            callout_background = background if family == "modular_announcement" else section_background
+            callout_background_hex = palette["background"] if family == "modular_announcement" else _recipe_color_hex(
+                section_recipe.get("background"), palette["surface"]
+            )
+            callout_background = _reportlab_color(callout_background_hex)
+            callout_foreground = _reportlab_color(_preferred_foreground(
+                callout_background_hex, section_recipe.get("foreground"), palette["text"]
+            ))
+            callout_style = ParagraphStyle("callout-on-field", parent=styles["callout"], textColor=callout_foreground)
             callout_border_width = 0.8 if family == "modular_announcement" else 0
             story.extend([
-                BrandedBox(safe, styles["callout"], background=callout_background, border=surface, border_width=callout_border_width,
+                BrandedBox(safe, callout_style, background=callout_background, border=surface, border_width=callout_border_width,
                            radius=callout_radius, padding=section_padding, accent=accent),
                 Spacer(1, base * 2),
             ])
@@ -902,8 +908,7 @@ def create_pdf(
         )
         story.extend([
             CondPageBreak(130),
-            HRFlowable(width="100%", thickness=0.8, color=surface, spaceBefore=base * 2.5, spaceAfter=base * 1.2, hAlign="LEFT"),
-            brand_rule(content_width * 0.16, 4), Spacer(1, base * 2),
+            Spacer(1, base * 2.5), brand_rule(content_width * 0.16, 4), Spacer(1, base * 2),
             heading_flowable,
             Spacer(1, base * 2),
             body_and_action,

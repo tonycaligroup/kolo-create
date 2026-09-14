@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import pytest
 import zipfile
 from pathlib import Path
@@ -9,6 +10,7 @@ from playwright.sync_api import sync_playwright
 from pypdf import PdfReader
 
 from kolo_design.browser_extract import _browser_executable, _dismiss_overlays, _freeze_motion, _reference_pdf
+import kolo_design.browser_extract as browser_extract_module
 
 from kolo_design.extractor import (
     _browser_native_evidence,
@@ -21,6 +23,7 @@ from kolo_design.extractor import (
     _logo_palette,
     _refine_rendered_colors,
     _refine_rendered_fonts,
+    _save_hero_assets,
     _spacing,
     _visual_language,
 )
@@ -65,6 +68,31 @@ def test_tiny_carousel_navigation_does_not_define_primary_brand_evidence() -> No
         "semantic": {"region": "section", "overlay": False},
     }
     assert not _in_primary_view(control)
+
+
+def test_svg_payload_cannot_be_saved_as_a_raster_hero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "kolo_design.extractor.fetch_limited",
+        lambda *args, **kwargs: (
+            "https://example.com/hero.jpg",
+            b'<svg viewBox="0 0 400 200"><path d="M0 0h400v200H0z"/></svg>',
+            "image/svg+xml",
+        ),
+    )
+    rendered = {
+        "viewport": {"width": 1000, "height": 800},
+        "elements": [{
+            "tag": "img",
+            "src": "https://example.com/hero.jpg",
+            "rect": {"width": 800, "height": 400},
+            "viewport": {"visible": True, "area_ratio": 0.4},
+            "semantic": {"region": "main", "overlay": False},
+            "style": {"background_image": "none"},
+        }],
+    }
+
+    assert _save_hero_assets(rendered, tmp_path) == []
+    assert not list(tmp_path.iterdir())
 
 
 def test_consent_cleanup_removes_orphaned_fullscreen_backdrop() -> None:
@@ -113,6 +141,58 @@ def test_consent_cleanup_handles_shopify_alertdialog_and_dimmed_layer() -> None:
         browser.close()
 
 
+def test_consent_cleanup_handles_generic_fixed_cookie_panel() -> None:
+    executable = _browser_executable()
+    if not executable:
+        pytest.skip("Chromium is not installed")
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1200, "height": 800})
+        page.set_content(
+            """
+            <main>Visible brand page</main>
+            <div class="generic-panel" style="position:fixed;left:20px;right:20px;bottom:20px">
+              <p>We use cookies to improve your experience and protect your privacy.</p>
+              <button>Decline</button><button>Accept All</button>
+            </div>
+            """
+        )
+        result = _dismiss_overlays(page)
+        assert result["clicked"] == "Decline"
+        assert page.locator(".generic-panel").evaluate("el => getComputedStyle(el).display") == "none"
+        browser.close()
+
+
+def test_consent_cleanup_reaches_shadow_roots_and_frames() -> None:
+    executable = _browser_executable()
+    if not executable:
+        pytest.skip("Chromium is not installed")
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1200, "height": 800})
+        page.set_content(
+            """
+            <div id="shadow-host"></div>
+            <iframe id="consent-frame" srcdoc="<div role='dialog'><p>Cookie privacy choices</p><button>Decline</button></div>"></iframe>
+            <script>
+              const root = document.querySelector('#shadow-host').attachShadow({mode:'open'});
+              root.innerHTML = `<div role="region" aria-label="cookie consent banner" style="position:fixed;inset:30px">
+                <p>Cookies improve your experience.</p><button>Reject all</button></div>`;
+            </script>
+            """
+        )
+        page.wait_for_timeout(100)
+        result = _dismiss_overlays(page)
+        assert result["clicked"] in {"Decline", "Reject all"}
+        shadow_display = page.locator("#shadow-host").evaluate(
+            "el => getComputedStyle(el.shadowRoot.querySelector('[role=region]')).display"
+        )
+        assert shadow_display == "none"
+        frame = next(frame for frame in page.frames if frame != page.main_frame)
+        assert frame.locator("[role=dialog]").evaluate("el => getComputedStyle(el).display") == "none"
+        browser.close()
+
+
 def test_reference_pdf_validates_rendered_colors_and_rejects_unpainted_css(tmp_path) -> None:
     executable = _browser_executable()
     if not executable:
@@ -133,7 +213,7 @@ def test_reference_pdf_validates_rendered_colors_and_rejects_unpainted_css(tmp_p
         )
         _freeze_motion(page)
         screenshot = page.screenshot(type="png")
-        payload, metadata = _reference_pdf(page)
+        payload, metadata = _reference_pdf(page, viewport_screenshot=page.screenshot(type="png"))
         browser.close()
     assert payload is not None
     assert metadata["status"] == "captured"
@@ -163,6 +243,80 @@ def test_reference_pdf_validates_rendered_colors_and_rejects_unpainted_css(tmp_p
     )
     assert colors["accent_secondary"] == "#007AFF"
     assert next(item for item in decisions if item["role"] == "accent_secondary")["status"] == "contradicted"
+
+
+def test_reference_pdf_bounds_image_heavy_long_pages_instead_of_dropping_them(monkeypatch) -> None:
+    executable = _browser_executable()
+    if not executable:
+        pytest.skip("Chromium is not installed")
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1100})
+        page.set_content(
+            "<style>html,body{margin:0}.page{height:1100px;page-break-after:always;"
+            "font:80px sans-serif;padding:80px;background:linear-gradient(135deg,#fff,#ddd)}</style>"
+            + "".join(f'<section class="page">Reference page {index}</section>' for index in range(1, 7))
+        )
+        full = page.pdf(width="1440px", height="1100px", print_background=True)
+        first_two = page.pdf(width="1440px", height="1100px", page_ranges="1-2", print_background=True)
+        assert len(full) > len(first_two)
+        limit = (len(full) + len(first_two)) // 2
+        monkeypatch.setattr(browser_extract_module, "MAX_REFERENCE_PDF_BYTES", limit)
+        payload, metadata = _reference_pdf(page)
+        assert payload is not None
+        assert len(payload) <= limit
+        assert metadata["status"] == "captured_bounded"
+        assert metadata["delivery_bounded"] is True
+        assert metadata["full_capture_bytes"] == len(full)
+        browser.close()
+
+
+def test_reference_pdf_retries_a_failed_full_capture_with_a_bounded_range(monkeypatch) -> None:
+    executable = _browser_executable()
+    if not executable:
+        pytest.skip("Chromium is not installed")
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1100})
+        page.set_content("<main style='min-height:2200px'>Adobe-like long page</main>")
+        original_pdf = page.pdf
+
+        def flaky_pdf(**options):
+            if "page_ranges" not in options:
+                raise RuntimeError("full capture failed")
+            return original_pdf(**options)
+
+        monkeypatch.setattr(page, "pdf", flaky_pdf)
+        payload, metadata = _reference_pdf(page)
+        assert payload is not None
+        assert metadata["status"] == "captured_bounded"
+        assert metadata["full_capture_error"] == "RuntimeError"
+        browser.close()
+
+
+def test_reference_pdf_rasterizes_when_chromium_printing_is_unavailable(monkeypatch) -> None:
+    executable = _browser_executable()
+    if not executable:
+        pytest.skip("Chromium is not installed")
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1100})
+        page.set_content(
+            "<main style='min-height:2200px;background:#eb1000;color:white'>Adobe-like page</main>"
+        )
+
+        def failed_pdf(**_options):
+            raise RuntimeError("printing unavailable")
+
+        monkeypatch.setattr(page, "pdf", failed_pdf)
+        payload, metadata = _reference_pdf(
+            page, viewport_screenshot=page.screenshot(type="png")
+        )
+        assert payload is not None
+        assert metadata["status"] == "captured_bounded"
+        assert metadata["capture_mode"] == "rasterized_viewport_screenshot"
+        assert len(PdfReader(io.BytesIO(payload)).pages) == 1
+        browser.close()
 
 
 def test_reference_reconciliation_replaces_unsupported_mailchimp_teal_with_supported_dark() -> None:
@@ -213,6 +367,29 @@ def test_reference_reconciliation_preserves_supported_redbull_navy() -> None:
     )
     assert colors["accent_secondary"] == "#FFCC00"
     assert colors["brand_dark"] == "#00162B"
+
+
+def test_reference_reconciliation_drops_visually_incidental_brand_dark() -> None:
+    reference = {
+        "usable_for_color_validation": True,
+        "candidates": [
+            {"value": "#000000", "status": "supported", "pdf_share_within_rgb_12": 0.08, "screenshot_share_within_rgb_12": 0.06, "logo_supported": True},
+            {"value": "#3A0501", "status": "supported", "pdf_share_within_rgb_12": 0.00016, "screenshot_share_within_rgb_12": 0.0004, "logo_supported": False},
+        ],
+    }
+    colors, _ = reconcile_reference_colors(
+        {
+            "background": "#FFFFFF", "surface": "#F3F3F3", "text": "#000000",
+            "accent": "#000000", "accent_secondary": "#000000", "brand_dark": "#3A0501",
+        },
+        [
+            {"value": "#000000", "occurrences": 900},
+            {"value": "#3A0501", "occurrences": 7},
+        ],
+        reference,
+    )
+
+    assert "brand_dark" not in colors
 
 
 def test_style_evidence_compiles_to_semantic_tokens() -> None:

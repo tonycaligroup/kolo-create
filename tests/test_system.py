@@ -494,17 +494,31 @@ def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
 
 def test_powerpoint_rejects_unsupported_image_formats_before_node(tmp_path: Path) -> None:
     logo = tmp_path / "logo.svg"
+    safe_webp = tmp_path / "safe.webp"
     logo.write_text('<svg viewBox="0 0 200 50"><path d="M0 0h200v50H0z"/></svg>', encoding="utf-8")
+    PILImage.new("RGB", (320, 180), "#222222").save(safe_webp, "WEBP")
     safe, rejected = _safe_presentation_system({
         "assets": [
             {"kind": "hero-image", "path": "/tmp/unsafe.heif"},
-            {"kind": "hero-image", "path": "/tmp/safe.webp"},
+            {"kind": "hero-image", "path": str(safe_webp)},
             {"id": "brand-mark", "kind": "logo", "path": str(logo), "score": 100},
         ]
     })
     assert rejected == ["/tmp/unsafe.heif"]
-    assert [asset["path"] for asset in safe["assets"]] == ["/tmp/safe.webp", str(logo)]
+    assert [asset["path"] for asset in safe["assets"]] == [str(safe_webp), str(logo)]
     assert safe["presentation_logo"]["id"] == "brand-mark"
+
+
+def test_powerpoint_rejects_svg_bytes_disguised_as_jpeg(tmp_path: Path) -> None:
+    fake_jpeg = tmp_path / "hero.jpg"
+    fake_jpeg.write_text('<svg viewBox="0 0 400 200"><path d="M0 0h400v200H0z"/></svg>', encoding="utf-8")
+
+    safe, rejected = _safe_presentation_system({
+        "assets": [{"id": "hero-1", "kind": "hero-image", "path": str(fake_jpeg)}]
+    })
+
+    assert rejected == [str(fake_jpeg)]
+    assert safe["assets"] == []
 
 
 def test_presentation_logo_rejects_promotional_lockup_and_ambiguous_nav_crop(tmp_path: Path) -> None:
@@ -517,6 +531,111 @@ def test_presentation_logo_rejects_promotional_lockup_and_ambiguous_nav_crop(tmp
             {"id": "product-lockup", "kind": "logo", "path": str(promo), "source_url": "https://example.com/images/promo_logo_product.png", "score": 500},
             {"id": "ambiguous-nav", "kind": "logo", "path": str(nav_crop), "source": "visible-header-logo", "source_url": "https://example.com/", "css_width": 46, "css_height": 44, "score": 200},
         ]
+    })
+
+    assert selected is None
+
+
+def test_presentation_logo_prefers_large_visible_wordmark_over_square_vector_icon(tmp_path: Path) -> None:
+    icon = tmp_path / "icon.svg"
+    wordmark = tmp_path / "wordmark.png"
+    icon.write_text('<svg viewBox="0 0 34 34"><path d="M0 0h34v34H0z"/></svg>', encoding="utf-8")
+    PILImage.new("RGBA", (1200, 240), (0, 0, 0, 255)).save(wordmark)
+
+    selected = _select_presentation_logo({
+        "assets": [
+            {"id": "icon", "kind": "logo", "path": str(icon), "score": 200},
+            {
+                "id": "wordmark", "kind": "logo", "path": str(wordmark),
+                "source": "visible-header-logo", "score": 260,
+            },
+        ]
+    })
+
+    assert selected is not None
+    assert selected["id"] == "wordmark"
+
+
+def test_presentation_logo_accepts_visible_wordmark_at_native_size(tmp_path: Path) -> None:
+    wordmark = tmp_path / "wordmark.png"
+    PILImage.new("RGBA", (179, 42), (88, 204, 2, 255)).save(wordmark)
+
+    selected = _select_presentation_logo({
+        "assets": [{
+            "id": "visible-wordmark", "kind": "logo", "path": str(wordmark),
+            "source": "visible-header-logo", "score": 185,
+        }]
+    })
+
+    assert selected is not None
+    assert selected["id"] == "visible-wordmark"
+
+
+def test_generic_page_image_cannot_masquerade_as_logo(tmp_path: Path) -> None:
+    product = tmp_path / "product.jpg"
+    PILImage.new("RGB", (1344, 135), "white").save(product)
+
+    selected = _select_presentation_logo({
+        "assets": [{
+            "id": "not-a-logo", "kind": "logo", "path": str(product),
+            "source": "image", "source_url": "https://example.com/campaign.jpg", "score": 500,
+        }]
+    })
+
+    assert selected is None
+
+
+def test_sparse_broken_image_placeholder_cannot_masquerade_as_logo(tmp_path: Path) -> None:
+    placeholder = tmp_path / "broken.png"
+    image = PILImage.new("RGBA", (480, 480), (0, 0, 0, 0))
+    for x in range(45):
+        for y in range(45):
+            image.putpixel((x, y), (192, 192, 192, 255))
+    image.save(placeholder)
+
+    selected = _select_presentation_logo({
+        "assets": [{
+            "id": "broken", "kind": "logo", "path": str(placeholder),
+            "source": "visible-header-logo", "css_width": 78, "css_height": 78, "score": 300,
+        }]
+    })
+
+    assert selected is None
+
+
+def test_near_solid_broken_image_capture_cannot_masquerade_as_logo(tmp_path: Path) -> None:
+    placeholder = tmp_path / "opaque-broken.png"
+    image = PILImage.new("RGBA", (480, 480), (0, 0, 0, 255))
+    for x in range(42):
+        for y in range(42):
+            image.putpixel((x, y), (190, 210, 225, 255))
+    image.save(placeholder)
+
+    selected = _select_presentation_logo({
+        "assets": [{
+            "id": "opaque-broken", "kind": "logo", "path": str(placeholder),
+            "source": "visible-header-logo", "css_width": 78, "css_height": 78, "score": 300,
+        }]
+    })
+
+    assert selected is None
+
+
+def test_sparse_full_bbox_browser_placeholder_cannot_masquerade_as_logo(tmp_path: Path) -> None:
+    placeholder = tmp_path / "scattered-broken.png"
+    image = PILImage.new("RGBA", (480, 480), (0, 0, 0, 0))
+    for point in ((0, 0), (479, 0), (0, 479), (479, 479)):
+        image.putpixel(point, (180, 200, 220, 255))
+    for x in range(30):
+        for y in range(30):
+            image.putpixel((x + 4, y + 4), (180, 200, 220, 255))
+    image.save(placeholder)
+
+    selected = _select_presentation_logo({
+        "assets": [{
+            "id": "scattered-broken", "kind": "logo", "path": str(placeholder),
+            "source": "visible-header-logo", "css_width": 78, "css_height": 78, "score": 300,
+        }]
     })
 
     assert selected is None

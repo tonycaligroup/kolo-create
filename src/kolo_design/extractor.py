@@ -874,7 +874,14 @@ def _save_hero_assets(rendered: dict[str, Any] | None, asset_dir: Path, limit: i
             target = asset_dir / f"hero-{len(saved) + 1}{suffix}"
             atomic_write(target, payload)
             dimensions = raster_dimensions(target)
-            width, height = dimensions or (0, 0)
+            # A URL suffix is not an image contract. Some sites serve SVG UI
+            # artwork from endpoints that look like JPEGs; keeping those files
+            # produces broken placeholders in ReportLab/PowerPoint. Hero media is
+            # raster-only for now, so reject anything Pillow cannot actually decode.
+            if not dimensions:
+                target.unlink(missing_ok=True)
+                continue
+            width, height = dimensions
             semantic_text = " ".join(
                 str(element.get(key, "")) for key in ("alt", "text_sample")
             ).strip()

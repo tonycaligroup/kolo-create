@@ -65,6 +65,28 @@ def _safe_svg_logo(path: Path) -> bool:
 
 def _select_presentation_logo(system: dict[str, Any]) -> dict[str, Any] | None:
     """Prefer a real wordmark with enough pixels, while retaining vector marks."""
+    # A large browser-rendered header wordmark is more useful in a deck than a
+    # square metadata icon, even when that icon happens to be SVG. This protects
+    # brands such as Dropbox from being reduced to a tiny app tile throughout.
+    visible_wordmarks: list[tuple[float, dict[str, Any]]] = []
+    for asset in system.get("assets", []):
+        if asset.get("kind") != "logo" or asset.get("source") != "visible-header-logo":
+            continue
+        enriched = select_logo_asset(
+            {"assets": [asset]}, allow_svg=False, max_width=180, max_height=52, minimum_density=0.5
+        )
+        if not enriched:
+            continue
+        width, height = raster_dimensions(Path(str(enriched["path"]))) or (1, 1)
+        if width / max(1, height) < 1.8:
+            continue
+        score = float(asset.get("score", 0)) * 10 + min(width * height / 1000, 500)
+        visible_wordmarks.append((score, enriched))
+    if visible_wordmarks:
+        selected = dict(max(visible_wordmarks, key=lambda item: item[0])[1])
+        selected["visual_luminance"] = _logo_visual_luminance(system, selected)
+        return selected
+
     vectors = [
         asset for asset in system.get("assets", [])
         if asset.get("kind") == "logo" and Path(str(asset.get("path", ""))).suffix.lower() == ".svg"
@@ -140,7 +162,7 @@ def _logo_visual_luminance(system: dict[str, Any], selected: dict[str, Any]) -> 
                 rgba = image.convert("RGBA")
                 rgba.thumbnail((128, 128))
                 weighted = total_alpha = 0.0
-                for red, green, blue, alpha in rgba.getdata():
+                for red, green, blue, alpha in rgba.get_flattened_data():
                     if alpha < 16:
                         continue
                     channels = []
@@ -196,10 +218,12 @@ def _safe_presentation_system(system: dict[str, Any]) -> tuple[dict[str, Any], l
     safe_assets: list[dict[str, Any]] = []
     for asset in safe_system.get("assets", []):
         asset_path = str(asset.get("path", ""))
-        suffix = Path(asset_path).suffix.lower()
-        if asset.get("kind") == "hero-image" and suffix not in _PRESENTATION_IMAGE_SUFFIXES:
-            rejected.append(asset_path)
-            continue
+        path = Path(asset_path)
+        suffix = path.suffix.lower()
+        if asset.get("kind") == "hero-image":
+            if suffix not in _PRESENTATION_IMAGE_SUFFIXES or not raster_dimensions(path):
+                rejected.append(asset_path)
+                continue
         if asset.get("kind") == "logo" and (
             suffix not in _PRESENTATION_LOGO_SUFFIXES
             or (suffix == ".svg" and not _safe_svg_logo(Path(asset_path)))
@@ -577,7 +601,7 @@ def create_presentation(
     preview_dir = output_path.parent / f"{output_path.stem}-preview"
     normalized_images = _normalize_presentation_images(render_system, preview_dir)
     plan_path = output_path.with_suffix(".presentation-plan.json")
-    quality_path = output_path.with_suffix(".quality.json")
+    quality_path = output_path.with_suffix(".presentation-quality.json")
     write_json(plan_path, plan)
 
     script_source = Path(__file__).resolve().parents[2] / "scripts" / "build_presentation.mjs"

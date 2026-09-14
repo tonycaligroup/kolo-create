@@ -212,7 +212,16 @@ def reconcile_reference_colors(
 
     initial_dark = result.get("brand_dark")
     dark_status = status(initial_dark) if initial_dark else "missing"
-    if initial_dark and dark_status != "supported":
+    initial_dark_support = support.get(str(initial_dark).upper()) if initial_dark else None
+    initial_dark_is_material = bool(
+        initial_dark_support
+        and (
+            initial_dark_support.get("logo_supported")
+            or float(initial_dark_support.get("pdf_share_within_rgb_12", 0)) >= 0.002
+            or float(initial_dark_support.get("screenshot_share_within_rgb_12", 0)) >= 0.002
+        )
+    )
+    if initial_dark and (dark_status != "supported" or not initial_dark_is_material):
         result.pop("brand_dark", None)
     if "brand_dark" not in result:
         excluded = {result[role].upper() for role in ("background", "surface", "accent", "accent_secondary")}
@@ -222,6 +231,11 @@ def reconcile_reference_colors(
             candidate = support.get(value) or {}
             if (
                 candidate.get("status") == "supported"
+                and (
+                    candidate.get("logo_supported")
+                    or float(candidate.get("pdf_share_within_rgb_12", 0)) >= 0.002
+                    or float(candidate.get("screenshot_share_within_rgb_12", 0)) >= 0.002
+                )
                 and value not in excluded
                 and _luminance(value) <= 0.12
                 and _chroma(value) >= 0.08

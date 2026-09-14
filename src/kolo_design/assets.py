@@ -20,6 +20,10 @@ def raster_dimensions(path: Path) -> tuple[int, int] | None:
 def _usable_logo_raster(path: Path, width: int, height: int, asset: dict[str, Any]) -> bool:
     """Reject favicon-like and visually empty rasters before they reach a cover."""
     source_hint = " ".join(str(asset.get(key, "")) for key in ("source", "source_url", "provenance")).lower()
+    if asset.get("source") == "image" and not any(
+        marker in source_hint for marker in ("logo", "wordmark", "brandmark", "brand-mark")
+    ):
+        return False
     if 0.82 <= width / max(1, height) <= 1.22 and any(
         marker in source_hint for marker in ("favicon", "apple-touch", "app-icon", "manifest")
     ):
@@ -32,8 +36,34 @@ def _usable_logo_raster(path: Path, width: int, height: int, asset: dict[str, An
             if bbox is None:
                 return False
             visible_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-            if visible_area / max(1, width * height) < 0.015:
+            if visible_area / max(1, width * height) < 0.04:
                 return False
+            alpha_sample = alpha.copy()
+            alpha_sample.thumbnail((96, 96))
+            painted_pixels = sum(1 for value in alpha_sample.get_flattened_data() if value >= 16)
+            if (
+                asset.get("source") == "visible-header-logo"
+                and 0.82 <= width / max(1, height) <= 1.22
+                and painted_pixels / max(1, alpha_sample.width * alpha_sample.height) < 0.08
+            ):
+                return False
+            # Chromium paints a failed transparent image as a nearly solid dark
+            # square with a tiny broken-image glyph in one corner. It is fully
+            # opaque, so alpha-only checks mistake it for a legitimate mark.
+            # Reject near-square header captures whose dominant painted color
+            # consumes almost the entire crop; real app tiles retain materially
+            # more foreground detail.
+            if asset.get("source") == "visible-header-logo" and 0.82 <= width / max(1, height) <= 1.22:
+                sample = rgba.copy()
+                sample.thumbnail((96, 96))
+                opaque_pixels = [pixel[:3] for pixel in sample.get_flattened_data() if pixel[3] >= 240]
+                if opaque_pixels:
+                    color_counts: dict[tuple[int, int, int], int] = {}
+                    for pixel in opaque_pixels:
+                        color_counts[pixel] = color_counts.get(pixel, 0) + 1
+                    dominant_count = max(color_counts.values(), default=0)
+                    if dominant_count / len(opaque_pixels) >= 0.9:
+                        return False
     except (OSError, ValueError):
         return False
     return True

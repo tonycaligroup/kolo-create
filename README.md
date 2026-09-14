@@ -45,6 +45,8 @@ uv run kolo-design powerpoint create \
 
 PowerPoint generation uses PptxGenJS 4.0.1 installed locally in the skill directory. It creates native editable text, shapes, and images. Extracted brand marks replace generic name labels on covers, signoffs, and page furniture when they pass vector-safety or raster-density checks; text is the fallback only when no usable logo exists. Because Kolo's current pod does not include LibreOffice, Chromium renders a same-plan HTML composition preview while code separately checks the real PPTX package for source-text coverage, editable shapes, slide count, and off-canvas geometry. The preview is not represented as a literal PowerPoint render. `KOLO_PRESENTATION_NODE` is optional when `node` is not on `PATH`.
 
+PDF quality evidence is written beside the document as `<stem>.quality.json`; PowerPoint evidence uses `<stem>.presentation-quality.json`, so generating both formats with the same stem cannot overwrite either report.
+
 PptxGenJS currently brings an `image-size` advisory affecting ICNS, JXL, and HEIF parsing. Kolo Create never passes those formats to the renderer: the presentation boundary accepts only PNG, JPEG, and WebP assets.
 
 Presentation typography is copy-aware: long paragraphs cannot become oversized display walls, long headlines receive balanced breaks, and conservative line-length checks reject layouts likely to create one-word widows when Office reflows the text.

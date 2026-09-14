@@ -124,6 +124,15 @@ function addBrandMark(slide, position, fieldColor, options = {}) {
   const needsContrastField = options.contrastField ?? markContrast < 2.2;
   const paddingX = needsContrastField ? 12 : 0;
   const paddingY = needsContrastField ? 7 : 0;
+  const availableWidth = position.width - paddingX * 2;
+  const availableHeight = position.height - paddingY * 2;
+  // Browser-captured raster wordmarks are trustworthy at native size. Cap the
+  // box to their real pixel dimensions instead of enlarging them to fill a slot.
+  let width = preparedLogo.suffix === ".svg" ? availableWidth : Math.min(availableWidth, preparedLogo.width);
+  let height = width / preparedLogo.aspect;
+  if (height > availableHeight) { height = availableHeight; width = height * preparedLogo.aspect; }
+  const left = position.left + paddingX;
+  const top = position.top + (position.height - height) / 2;
   if (needsContrastField) {
     const candidates = [background, surface, dark, accent];
     const patchColor = Number.isFinite(markLuminance)
@@ -134,15 +143,8 @@ function addBrandMark(slide, position, fieldColor, options = {}) {
           return candidateContrast > best.contrast ? { color: candidate, contrast: candidateContrast } : best;
         }, { color: background, contrast: 0 }).color
       : background;
-    addRect(slide, position.left, position.top, position.width, position.height, patchColor, 0);
+    addRect(slide, left - paddingX, top - paddingY, width + paddingX * 2, height + paddingY * 2, patchColor, 5);
   }
-  const availableWidth = position.width - paddingX * 2;
-  const availableHeight = position.height - paddingY * 2;
-  let width = availableWidth;
-  let height = width / preparedLogo.aspect;
-  if (height > availableHeight) { height = availableHeight; width = height * preparedLogo.aspect; }
-  const left = position.left + paddingX;
-  const top = position.top + (position.height - height) / 2;
   slide.addImage({
     path: preparedLogo.asset.path, altText: `${system.name} logo`, objectName: options.name || "brand-logo",
     x: inch(left), y: inch(top), w: inch(width), h: inch(height), sizing: { type: "contain", w: inch(width), h: inch(height) },
@@ -282,15 +284,13 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addBrandMark(slide, { left: 72, top: 44, width: 200, height: 56 }, background, { color: accent, name: "brand-label", contrastField: false });
       addText(slide, planSlide.title, 72, 140, 560, 210, 48, ink, { bold: true, name: "title" });
       addText(slide, planSlide.subtitle, 72, 385, 540, 145, 22, ink, { body: true, bold: false, name: "subtitle" });
-      addRule(slide, 72, 610, 190, accent, 8);
-      addRule(slide, 280, 610, 96, secondary, 8);
+      addRule(slide, 72, 610, 304, accent, 8);
     } else {
       addText(slide, "01", 1010, 106, 180, 120, 72, surface, { body: true, bold: true, align: "right" });
       addBrandMark(slide, { left: 72, top: 48, width: 200, height: 56 }, background, { color: accent, name: "brand-label", contrastField: false });
       addText(slide, planSlide.title, 72, 182, 880, 165, 56, ink, { bold: true, name: "title" });
       addText(slide, planSlide.subtitle, 330, 404, 790, 120, 23, ink, { body: true, bold: false, name: "subtitle" });
-      addRule(slide, 72, 594, 330, accent, 10);
-      addRule(slide, 420, 594, 110, secondary, 10);
+      addRule(slide, 72, 594, 458, accent, 10);
     }
   } else if (planSlide.archetype === "process") {
     const bullets = body.filter((block) => block.kind === "bullet").slice(0, 4);
@@ -310,7 +310,6 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text); const x = 72 + itemIndex * 365;
         addRect(slide, x, 250, 330, 310, surface, 16);
-        addRect(slide, x, 250, 330, 18, itemIndex === 1 ? secondary : accent, 8);
         addText(slide, String(itemIndex + 1).padStart(2, "0"), x + 24, 292, 70, 38, 18, secondary, { body: true, bold: true });
         addText(slide, label, x + 24, 350, 280, 80, 22, ink, { bold: true, vertical: "top" });
         addText(slide, detail, x + 24, 446, 280, 88, 15, ink, { body: true, vertical: "top" });
@@ -335,7 +334,6 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, detail, x + 24, 448, 280, 84, 15, color, { body: true, vertical: "top" });
       });
     } else {
-      addRule(slide, 72, 143, 1120, accent, 3);
       if (intro) addText(slide, intro.text, 72, 166, 1050, 74, 18, ink, { body: true, bold: false });
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text);
@@ -359,7 +357,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, `0${itemIndex + 1}`, 72, y, 52, 30, 13, accent, { body: true, bold: true });
         addText(slide, label, 160, y, 330, 34, 19, ink, { bold: true, vertical: "top" });
         addText(slide, detail, 540, y, 590, 48, 14, ink, { body: true, vertical: "top" });
-        addRule(slide, 160, y + 58, 970, accent, 2);
+        addRect(slide, 126, y + 5, 8, 30, accent, 4);
       });
     } else if (alternate && ["editorial", "product"].includes(designProfile)) {
       const measuredCards = new Map(
@@ -397,7 +395,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addText(slide, `0${itemIndex + 1}`, 72, y, 52, 32, 14, secondary, { body: true, bold: true });
         addText(slide, label, 160, y, 330, 34, 20, ink, { bold: true, vertical: "top" });
         addText(slide, detail, 520, y, 610, 52, 15, ink, { body: true, vertical: "top" });
-        addRule(slide, 160, y + 66, 970, itemIndex % 2 ? secondary : accent, 2);
+        addRect(slide, 126, y + 5, 8, 30, itemIndex % 2 ? secondary : accent, 4);
       });
     } else if (designProfile === "product") {
       const measuredCards = new Map(
@@ -469,7 +467,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         const detailTop = y + layout.detailOffset;
         addRect(slide, x, y, width, height, fill, 8, null,
           { shadow: true, name: `feature-card-${itemIndex + 1}` });
-        addRule(slide, x + inset, ruleTop, lead ? 150 : 110, itemIndex % 2 ? secondary : accent, 5);
+        if (lead) addRule(slide, x + inset, ruleTop, 120, accent, 5);
         addText(slide, label, x + inset, labelTop, width - inset * 2, layout.labelHeight, lead ? 23 : 19, color,
           { bold: true, vertical: "top", name: `feature-card-title-${itemIndex + 1}` });
         addText(slide, detail, x + inset, detailTop, width - inset * 2, layout.detailHeight, lead ? 16 : 12, color,
@@ -488,10 +486,11 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text);
         const column = itemIndex % 2, row = Math.floor(itemIndex / 2);
-        const x = 72 + column * 570, y = 248 + row * 124;
-        addRule(slide, x, y, 500, column ? secondary : accent, 3);
-        addText(slide, label, x, y + 16, 500, 34, 20, ink, { bold: true, vertical: "top" });
-        addText(slide, detail, x, y + 53, 500, 55, 15, ink, { body: true, bold: false, vertical: "top" });
+        const x = 72 + column * 570, y = 242 + row * 136;
+        addRect(slide, x, y, 520, 112, surface, 10, null, { shadow: true });
+        addRect(slide, x + 20, y + 20, 8, 32, column ? secondary : accent, 4);
+        addText(slide, label, x + 48, y + 18, 440, 34, 20, ink, { bold: true, vertical: "top" });
+        addText(slide, detail, x + 48, y + 57, 440, 38, 15, ink, { body: true, bold: false, vertical: "top" });
       });
     }
     addFooter(slide, index + 1);
@@ -532,7 +531,6 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addFooter(slide, index + 1, ink, { left: 390, field: background });
     } else {
       addText(slide, planSlide.title, 72, 62, 1060, 92, 42, ink, { bold: true, name: "title" });
-      addRule(slide, 72, 184, 210, accent, 7);
       addText(slide, statement?.text || "", 72, 234, 650, 292, 21, ink, { body: true, bold: true, vertical: "top", name: "primary-copy" });
       addRule(slide, 800, 204, 380, secondary, 3, { name: "supporting-rule" });
       addText(slide, remainder, 800, 234, 380, 296, 16, ink, { body: true, bold: false, vertical: "top", name: "supporting-copy" });
@@ -547,8 +545,6 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       // conspicuous contrast patch.
       prepareSlide(slide, background);
       addRect(slide, 860, 0, 420, 720, dark);
-      addRule(slide, 72, 118, 228, accent, 8);
-      addRule(slide, 316, 118, 92, secondary, 8);
       addBrandMark(slide, { left: 72, top: 42, width: 210, height: 58 }, background,
         { color: ink, name: "brand-label", contrastField: false });
       addText(slide, balancedHeadline(planSlide.title), 72, 166, 700, 184, 46, ink,

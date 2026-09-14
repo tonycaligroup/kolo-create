@@ -8,13 +8,18 @@ from typing import Any
 from urllib.parse import urlparse
 
 from PIL import Image as PILImage
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from .network import assert_public_url
+from .network import MAX_HTML_BYTES, assert_public_url, fetch_limited
 
 
 MAX_REFERENCE_PDF_BYTES = 45 * 1024 * 1024
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
 
 
 def _trim_transparent_png(payload: bytes) -> bytes:
@@ -84,8 +89,18 @@ def rasterize_svg(payload: bytes) -> bytes | None:
 
 def _dismiss_overlays(page: Any) -> dict[str, Any]:
     """Dismiss common consent UI before sampling or taking the evidence screenshot."""
-    result = page.evaluate(
-        """() => {
+    result: dict[str, Any] = {"clicked": "", "hidden": 0, "backdrops_hidden": 0}
+    click_script = """() => {
+          const deepElements = () => {
+            const elements = [], roots = [document];
+            for (const root of roots) {
+              for (const el of root.querySelectorAll('*')) {
+                elements.push(el);
+                if (el.shadowRoot) roots.push(el.shadowRoot);
+              }
+            }
+            return elements;
+          };
           const overlayWords = /(cookie|consent|privacy|tracking|preference)/i;
           const overlaySelector = [
             '[role="dialog"]', '[role="alertdialog"]', '[aria-modal="true"]', 'dialog',
@@ -98,7 +113,8 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
             /^(continue without accepting|do not sell)$/i,
             /^(accept|allow|agree)( all)?$/i
           ];
-          const controls = [...document.querySelectorAll('button,[role="button"],input[type="button"],input[type="submit"]')]
+          const controls = deepElements()
+            .filter((el) => el.matches('button,[role="button"],input[type="button"],input[type="submit"]'))
             .filter((el) => {
               const r = el.getBoundingClientRect(), s = getComputedStyle(el);
               return r.width > 1 && r.height > 1 && s.display !== 'none' && s.visibility !== 'hidden';
@@ -108,7 +124,19 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
               const label = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
               if (!pattern.test(label)) return false;
               const parent = el.closest(overlaySelector);
-              return Boolean(parent && overlayWords.test(parent.innerText || parent.getAttribute('aria-label') || ''));
+              if (parent && overlayWords.test(parent.innerText || parent.getAttribute('aria-label') || '')) {
+                return true;
+              }
+              let ancestor = el.parentElement || el.getRootNode()?.host;
+              for (let depth = 0; ancestor && depth < 10; depth += 1) {
+                const text = (ancestor.innerText || ancestor.getAttribute('aria-label') || '').trim();
+                const position = getComputedStyle(ancestor).position;
+                if (text.length <= 2500 && overlayWords.test(text) && ['fixed', 'sticky'].includes(position)) {
+                  return true;
+                }
+                ancestor = ancestor.parentElement || ancestor.getRootNode()?.host;
+              }
+              return false;
             });
             if (control) {
               const label = (control.innerText || control.value || control.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
@@ -118,17 +146,34 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
           }
           return { clicked: '', hidden: 0 };
         }"""
-    )
+    frames = list(page.frames)
+    for frame in frames:
+        try:
+            frame_result = frame.evaluate(click_script)
+            if frame_result.get("clicked") and not result["clicked"]:
+                result["clicked"] = frame_result["clicked"]
+        except PlaywrightError:
+            continue
     page.wait_for_timeout(650)
-    hidden_result = page.evaluate(
-        """() => {
+    cleanup_script = """() => {
+          const deepElements = () => {
+            const elements = [], roots = [document];
+            for (const root of roots) {
+              for (const el of root.querySelectorAll('*')) {
+                elements.push(el);
+                if (el.shadowRoot) roots.push(el.shadowRoot);
+              }
+            }
+            return elements;
+          };
           const words = /(cookie|consent|privacy|tracking|preference)/i;
           const overlaySelector = [
             '[role="dialog"]', '[role="alertdialog"]', '[aria-modal="true"]', 'dialog',
             '[id*="cookie" i]', '[class*="cookie" i]',
             '[id*="consent" i]', '[class*="consent" i]'
           ].join(',');
-          const candidates = [...document.querySelectorAll(overlaySelector)];
+          const elements = deepElements();
+          const candidates = elements.filter((el) => el.matches(overlaySelector));
           let hidden = 0;
           for (const el of candidates) {
             const r = el.getBoundingClientRect(), s = getComputedStyle(el);
@@ -138,8 +183,20 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
               hidden += 1;
             }
           }
+          for (const el of elements) {
+            const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+            const text = (el.innerText || el.getAttribute('aria-label') || '').trim();
+            if (
+              r.width > 1 && r.height > 1 && ['fixed', 'sticky'].includes(s.position)
+              && text.length <= 2500 && words.test(text)
+              && el.querySelector('button,[role="button"],input[type="button"],input[type="submit"]')
+            ) {
+              el.style.setProperty('display', 'none', 'important');
+              hidden += 1;
+            }
+          }
           let backdrops = 0;
-          for (const el of document.querySelectorAll('body *')) {
+          for (const el of elements) {
             const r = el.getBoundingClientRect(), s = getComputedStyle(el);
             const area = Math.max(0, r.width) * Math.max(0, r.height);
             const hint = `${el.id || ''} ${typeof el.className === 'string' ? el.className : ''}`.toLowerCase();
@@ -157,9 +214,31 @@ def _dismiss_overlays(page: Any) -> dict[str, Any]:
           }
           return {dialogs: hidden, backdrops};
         }"""
-    )
-    result["hidden"] = hidden_result["dialogs"]
-    result["backdrops_hidden"] = hidden_result["backdrops"]
+    for frame in frames:
+        try:
+            hidden_result = frame.evaluate(cleanup_script)
+            result["hidden"] += hidden_result["dialogs"]
+            result["backdrops_hidden"] += hidden_result["backdrops"]
+        except PlaywrightError:
+            continue
+    try:
+        consent_iframes = page.evaluate(
+            """() => {
+              let hidden = 0;
+              for (const frame of document.querySelectorAll('iframe')) {
+                const hint = `${frame.src || ''} ${frame.id || ''} ${frame.className || ''} ${frame.title || ''}`;
+                const r = frame.getBoundingClientRect(), s = getComputedStyle(frame);
+                if (r.width > 1 && r.height > 1 && s.display !== 'none' && /(cookie|consent|privacy|ccpa|gdpr)/i.test(hint)) {
+                  frame.style.setProperty('display', 'none', 'important');
+                  hidden += 1;
+                }
+              }
+              return hidden;
+            }"""
+        )
+        result["hidden"] += consent_iframes
+    except PlaywrightError:
+        pass
     return result
 
 
@@ -193,7 +272,9 @@ def _warm_lazy_content(page: Any) -> None:
     )
 
 
-def _reference_pdf(page: Any) -> tuple[bytes | None, dict[str, Any]]:
+def _reference_pdf(
+    page: Any, *, viewport_screenshot: bytes | None = None
+) -> tuple[bytes | None, dict[str, Any]]:
     """Export the cleaned screen presentation as paginated browser evidence."""
     try:
         _warm_lazy_content(page)
@@ -204,22 +285,96 @@ def _reference_pdf(page: Any) -> tuple[bytes | None, dict[str, Any]]:
               height: document.documentElement.scrollHeight
             })"""
         )
-        payload = page.pdf(
-            width="1440px",
-            height="1100px",
-            print_background=True,
-            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-        )
         metadata = {
             "status": "captured",
-            "bytes": len(payload),
             "document": document,
             "media": "screen",
             "page_css_pixels": {"width": 1440, "height": 1100},
             "print_background": True,
         }
-        if len(payload) > MAX_REFERENCE_PDF_BYTES:
-            metadata.update({"status": "omitted_too_large", "maximum_bytes": MAX_REFERENCE_PDF_BYTES})
+        options = {
+            "width": "1440px",
+            "height": "1100px",
+            "print_background": True,
+            "margin": {"top": "0", "right": "0", "bottom": "0", "left": "0"},
+        }
+        payload = None
+        try:
+            payload = page.pdf(**options)
+            metadata.update({"bytes": len(payload), "full_capture_bytes": len(payload)})
+        except Exception as exc:
+            metadata.update({
+                "rich_page": document.get("height", 0) > 1100 * 5,
+                "full_capture_error": type(exc).__name__,
+            })
+        if payload is None and viewport_screenshot:
+            try:
+                with PILImage.open(io.BytesIO(viewport_screenshot)) as source:
+                    source = source.convert("RGB")
+                    target = io.BytesIO()
+                    source.save(target, "PDF", resolution=96, quality=78)
+                    bounded = target.getvalue()
+                if len(bounded) <= MAX_REFERENCE_PDF_BYTES:
+                    metadata.update({
+                        "status": "captured_bounded",
+                        "bytes": len(bounded),
+                        "page_ranges": "1-1",
+                        "delivery_bounded": True,
+                        "capture_mode": "rasterized_viewport_screenshot",
+                    })
+                    return bounded, metadata
+            except Exception as exc:
+                metadata["raster_fallback_error"] = type(exc).__name__
+        if payload is None or len(payload) > MAX_REFERENCE_PDF_BYTES:
+            metadata.update({
+                "rich_page": metadata.get("rich_page", True),
+                "maximum_bytes": MAX_REFERENCE_PDF_BYTES,
+            })
+            for final_page in (8, 6, 4, 2, 1):
+                try:
+                    bounded = page.pdf(**options, page_ranges=f"1-{final_page}")
+                except Exception:
+                    continue
+                if len(bounded) <= MAX_REFERENCE_PDF_BYTES:
+                    metadata.update({
+                        "status": "captured_bounded",
+                        "bytes": len(bounded),
+                        "page_ranges": f"1-{final_page}",
+                        "delivery_bounded": True,
+                    })
+                    return bounded, metadata
+            try:
+                raster_payload = viewport_screenshot or page.screenshot(
+                    full_page=False, type="jpeg", quality=78, scale="css"
+                )
+                with PILImage.open(io.BytesIO(raster_payload)) as source:
+                    source = source.convert("RGB")
+                    pages = [
+                        source.crop((0, top, source.width, min(top + 1100, source.height)))
+                        for top in range(0, source.height, 1100)
+                    ]
+                    for final_page in (8, 6, 4, 2, 1):
+                        selected = pages[:final_page]
+                        if not selected:
+                            continue
+                        target = io.BytesIO()
+                        selected[0].save(
+                            target, "PDF", save_all=True, append_images=selected[1:],
+                            resolution=96, quality=78,
+                        )
+                        bounded = target.getvalue()
+                        if len(bounded) <= MAX_REFERENCE_PDF_BYTES:
+                            metadata.update({
+                                "status": "captured_bounded",
+                                "bytes": len(bounded),
+                                "page_ranges": f"1-{len(selected)}",
+                                "delivery_bounded": True,
+                                "capture_mode": "rasterized_viewport_screenshot",
+                            })
+                            return bounded, metadata
+            except Exception as exc:
+                metadata["raster_fallback_error"] = type(exc).__name__
+            metadata.update({"status": "omitted_too_large", "delivery_bounded": False})
             return None, metadata
         return payload, metadata
     except Exception as exc:
@@ -326,8 +481,17 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
     if not allow_local:
         assert_public_url(url)
     with sync_playwright() as runtime:
-        browser = runtime.chromium.launch(executable_path=executable, headless=True, args=["--disable-dev-shm-usage"])
-        context = browser.new_context(viewport={"width": 1440, "height": 1100}, device_scale_factor=2)
+        browser = runtime.chromium.launch(
+            executable_path=executable,
+            headless=True,
+            args=["--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            viewport={"width": 1440, "height": 1100},
+            device_scale_factor=1,
+            user_agent=BROWSER_USER_AGENT,
+            locale="en-US",
+        )
 
         def route_request(route: Any) -> None:
             request_url = route.request.url
@@ -345,7 +509,39 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
         context.route("**/*", route_request)
         page = context.new_page()
         try:
-            response = page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+            navigation_fallback = ""
+            response = None
+            navigation_error = None
+            for _ in range(2):
+                try:
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+                    navigation_error = None
+                    break
+                except PlaywrightError as exc:
+                    navigation_error = exc
+                    page.wait_for_timeout(250)
+            if navigation_error is None:
+                snapshot_url = page.url
+                response_status = response.status if response else None
+            else:
+                if allow_local:
+                    raise navigation_error
+                snapshot_url, fallback_html, content_type = fetch_limited(
+                    url, MAX_HTML_BYTES, accept="text/html,application/xhtml+xml"
+                )
+                if "html" not in content_type and b"<html" not in fallback_html[:2000].lower():
+                    raise navigation_error
+                page.close()
+
+                def fulfill_document(route: Any) -> None:
+                    route.fulfill(status=200, body=fallback_html, content_type="text/html")
+
+                context.route(snapshot_url, fulfill_document)
+                context.route(snapshot_url.rstrip("/") + "/", fulfill_document)
+                page = context.new_page()
+                response = page.goto(snapshot_url, wait_until="domcontentloaded", timeout=20_000)
+                response_status = response.status if response else 200
+                navigation_fallback = "bounded_html_fulfilled_at_source_origin"
             try:
                 page.wait_for_load_state("networkidle", timeout=8_000)
             except PlaywrightTimeoutError:
@@ -353,9 +549,9 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
             page.wait_for_timeout(1200)
             _freeze_motion(page)
             if not allow_local:
-                assert_public_url(page.url)
+                assert_public_url(snapshot_url)
             overlay_actions = _dismiss_overlays(page)
-            visible_logo = _visible_logo(page, page.url)
+            visible_logo = _visible_logo(page, snapshot_url)
             snapshot = page.evaluate(
                 """() => {
                   const visible = [...document.querySelectorAll('body *')].filter((el) => {
@@ -426,15 +622,24 @@ def browser_snapshot(url: str, *, allow_local: bool = False) -> dict[str, Any] |
                   };
                 }"""
             )
-            snapshot["url"] = page.url
-            snapshot["response_status"] = response.status if response else None
+            snapshot["url"] = snapshot_url
+            snapshot["response_status"] = response_status
+            snapshot["navigation_fallback"] = navigation_fallback
             snapshot["overlay_actions"] = overlay_actions
             snapshot["visible_logo"] = visible_logo
             snapshot["screenshot"] = page.screenshot(full_page=False, type="png")
-            reference_pdf, reference_pdf_metadata = _reference_pdf(page)
+            reference_pdf, reference_pdf_metadata = _reference_pdf(
+                page, viewport_screenshot=snapshot["screenshot"]
+            )
             snapshot["reference_pdf"] = reference_pdf
             snapshot["reference_pdf_metadata"] = reference_pdf_metadata
             return snapshot
         finally:
-            context.close()
-            browser.close()
+            try:
+                context.close()
+            except PlaywrightError:
+                pass
+            try:
+                browser.close()
+            except PlaywrightError:
+                pass
