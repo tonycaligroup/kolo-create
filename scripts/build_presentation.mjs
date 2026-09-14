@@ -85,7 +85,9 @@ function addOutline(slide, x, y, width, height, color, stroke = 2, radius = 0) {
   });
   preview(slide, `<div style="position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${height}px;border:${stroke}px solid ${color};border-radius:${radius}px"></div>`);
 }
-function addRule(slide, x, y, width, color = accent, height = 4) { addRect(slide, x, y, width, height, color); }
+function addRule(slide, x, y, width, color = accent, height = 4, options = {}) {
+  addRect(slide, x, y, width, height, color, 0, null, options);
+}
 
 async function prepareLogo(asset) {
   if (!asset?.path) return null;
@@ -346,13 +348,34 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addRule(slide, 160, y + 58, 970, accent, 2);
       });
     } else if (alternate && ["editorial", "product"].includes(profile)) {
+      const measuredCards = new Map(
+        (spec.plan.layout_measurements?.slides?.[planSlide.id]?.cards || [])
+          .map(card => [Number(card.index), card])
+      );
+      const productLayouts = bullets.map((block, itemIndex) => {
+        const measured = measuredCards.get(itemIndex) || {};
+        const labelHeight = Math.max(30, Number(measured.label_height || 0) + 4);
+        const detailHeight = Math.max(22, Number(measured.detail_height || 0) + 4);
+        const detailOffset = 18 + labelHeight + 10;
+        return { labelHeight, detailHeight, detailOffset, height: Math.max(132, detailOffset + detailHeight + 18) };
+      });
+      const rowHeights = [0, 1, 2].map(row => Math.max(0, ...productLayouts
+        .filter((_, itemIndex) => Math.floor(itemIndex / 2) === row).map(layout => layout.height)));
+      const rowTops = [242];
+      for (let row = 1; row < rowHeights.length; row++) rowTops[row] = rowTops[row - 1] + rowHeights[row - 1] + 18;
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text); const column = itemIndex % 2, row = Math.floor(itemIndex / 2);
-        const x = 72 + column * 570, y = 242 + row * 158;
-        if (profile === "product") addRect(slide, x, y, 520, 132, surface, 14); else addOutline(slide, x, y, 520, 132, accent, 2);
+        const layout = productLayouts[itemIndex];
+        const x = 72 + column * 570, y = profile === "product" ? rowTops[row] : 242 + row * 158;
+        const height = profile === "product" ? layout.height : 132;
+        if (profile === "product") addRect(slide, x, y, 520, height, surface, 14, null, { name: `feature-card-${itemIndex + 1}` });
+        else addOutline(slide, x, y, 520, height, accent, 2);
         addText(slide, `0${itemIndex + 1}`, x + 20, y + 18, 48, 28, 12, secondary, { body: true, bold: true });
-        addText(slide, label, x + 82, y + 18, 400, 34, 19, ink, { bold: true, vertical: "top" });
-        addText(slide, detail, x + 82, y + 62, 400, 50, 14, ink, { body: true, vertical: "top" });
+        addText(slide, label, x + 82, y + 18, 400, profile === "product" ? layout.labelHeight : 34, 19, ink,
+          { bold: true, vertical: "top", name: profile === "product" ? `feature-card-title-${itemIndex + 1}` : undefined });
+        addText(slide, detail, x + 82, y + (profile === "product" ? layout.detailOffset : 62), 400,
+          profile === "product" ? layout.detailHeight : 50, 14, ink,
+          { body: true, vertical: "top", name: profile === "product" ? `feature-card-copy-${itemIndex + 1}` : undefined });
       });
     } else if (profile === "editorial") {
       bullets.forEach((block, itemIndex) => {
@@ -363,13 +386,30 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
         addRule(slide, 160, y + 66, 970, itemIndex % 2 ? secondary : accent, 2);
       });
     } else if (profile === "product") {
+      const measuredCards = new Map(
+        (spec.plan.layout_measurements?.slides?.[planSlide.id]?.cards || [])
+          .map(card => [Number(card.index), card])
+      );
+      const cardLayouts = bullets.map((block, itemIndex) => {
+        const measured = measuredCards.get(itemIndex) || {};
+        const labelHeight = Math.max(30, Number(measured.label_height || 0) + 4);
+        const detailHeight = Math.max(22, Number(measured.detail_height || 0) + 4);
+        const detailOffset = 20 + labelHeight + 10;
+        return { labelHeight, detailHeight, detailOffset, height: Math.max(140, detailOffset + detailHeight + 20) };
+      });
+      const rowHeights = [0, 1].map(row => Math.max(0, ...cardLayouts
+        .filter((_, itemIndex) => Math.floor(itemIndex / 3) === row).map(layout => layout.height)));
+      const rowTops = [246, 246 + rowHeights[0] + 18];
       bullets.forEach((block, itemIndex) => {
         const [label, detail] = splitFeature(block.text); const column = itemIndex % 3, row = Math.floor(itemIndex / 3);
-        const x = 72 + column * 365, y = 246 + row * 170;
-        addRect(slide, x, y, 330, 140, surface, 14);
-        addRect(slide, x, y, 18, 140, column === 1 ? secondary : accent, 7);
-        addText(slide, label, x + 40, y + 20, 260, 34, 19, ink, { bold: true, vertical: "top" });
-        addText(slide, detail, x + 40, y + 62, 260, 58, 14, ink, { body: true, vertical: "top" });
+        const layout = cardLayouts[itemIndex];
+        const x = 72 + column * 365, y = rowTops[row];
+        addRect(slide, x, y, 330, layout.height, surface, 14, null, { name: `feature-card-${itemIndex + 1}` });
+        addRect(slide, x, y, 18, layout.height, column === 1 ? secondary : accent, 7);
+        addText(slide, label, x + 40, y + 20, 260, layout.labelHeight, 19, ink,
+          { bold: true, vertical: "top", name: `feature-card-title-${itemIndex + 1}` });
+        addText(slide, detail, x + 40, y + layout.detailOffset, 260, layout.detailHeight, 14, ink,
+          { body: true, vertical: "top", name: `feature-card-copy-${itemIndex + 1}` });
       });
     } else if (profile === "kinetic" && bullets.length >= 3) {
       const measuredCards = new Map(
@@ -450,7 +490,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addBrandMark(slide, { left: 72, top: 44, width: 190, height: 52 }, field, { color: onField, name: "brand-label" });
       addText(slide, planSlide.title, 72, 118, 1060, 90, 40, onField, { bold: true, name: "title" });
       addText(slide, statement?.text || "", 72, 250, 760, 260, 23, onField, { body: true, bold: true, vertical: "top", name: "primary-copy" });
-      addRule(slide, 900, 250, 250, onField, 2);
+      addRule(slide, 900, 220, 250, onField, 2, { name: "supporting-rule" });
       addText(slide, remainder, 900, 250, 250, 246, 15, onField, { body: true, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1, onField);
     } else if (profile === "product") {
@@ -458,7 +498,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addRect(slide, 72, 188, 1110, 386, surface, 18);
       addRect(slide, 72, 188, 26, 386, accent, 12);
       addText(slide, statement?.text || "", 136, 238, 650, 250, 21, ink, { body: true, bold: true, vertical: "top", name: "primary-copy" });
-      addRule(slide, 830, 260, 290, secondary, 4);
+      addRule(slide, 830, 210, 290, secondary, 4, { name: "supporting-rule" });
       addText(slide, remainder, 830, 238, 290, 246, 15, ink, { body: true, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1);
     } else if (profile === "monochrome") {
@@ -480,7 +520,7 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
       addText(slide, planSlide.title, 72, 62, 1060, 92, 42, ink, { bold: true, name: "title" });
       addRule(slide, 72, 184, 210, accent, 7);
       addText(slide, statement?.text || "", 72, 234, 650, 292, 21, ink, { body: true, bold: true, vertical: "top", name: "primary-copy" });
-      addRule(slide, 800, 292, 380, secondary, 3);
+      addRule(slide, 800, 204, 380, secondary, 3, { name: "supporting-rule" });
       addText(slide, remainder, 800, 234, 380, 296, 16, ink, { body: true, bold: false, vertical: "top", name: "supporting-copy" });
       addFooter(slide, index + 1);
     }

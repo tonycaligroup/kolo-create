@@ -319,6 +319,28 @@ def test_presentation_layout_measures_wrapped_card_copy() -> None:
     assert card["detail_height"] > 19
 
 
+@pytest.mark.skipif(not _browser_executable(), reason="Chromium is required for text measurement")
+def test_product_presentation_layout_measures_multiline_card_titles() -> None:
+    system = read_json(FIXTURES / "design-system.json")
+    plan = {
+        "art_direction": {"profile": "product"},
+        "slides": [{
+            "id": "slide-01", "archetype": "feature-list", "variant": "product-feature",
+            "block_ids": ["b001"],
+        }],
+    }
+    blocks = [{
+        "id": "b001", "kind": "bullet",
+        "text": "The brand stays consistent: Every new piece starts from the visual language you already approved.",
+    }]
+    measured = measure_presentation_layout(system, plan, blocks)
+    card = measured["slides"]["slide-01"]["cards"][0]
+
+    assert measured["request_count"] == 2
+    assert card["label_lines"] >= 2
+    assert card["label_height"] > 30
+
+
 @pytest.mark.skipif(not (Path(__file__).parents[1] / "node_modules" / "pptxgenjs").is_dir(), reason="run npm install for presentation tests")
 def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
     output = tmp_path / "designed.pptx"
@@ -346,6 +368,7 @@ def test_powerpoint_vertical_slice(tmp_path: Path) -> None:
     assert quality["checks"]["footer_encroachments"] == 0
     assert quality["checks"]["feature_card_overflows"] == 0
     assert quality["checks"]["misaligned_feature_copy"] == 0
+    assert quality["checks"]["supporting_rule_overlaps"] == 0
     assert quality["checks"]["distinct_layout_variants"] >= 3
 
 

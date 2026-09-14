@@ -71,7 +71,7 @@ def measure_presentation_layout(
     block_map = {block["id"]: block for block in blocks}
     requests: list[dict[str, Any]] = []
     card_refs: list[tuple[str, int, str, str]] = []
-    if profile == "kinetic":
+    if profile in {"kinetic", "product"}:
         for slide in plan.get("slides", []):
             if slide.get("archetype") != "feature-list":
                 continue
@@ -82,19 +82,22 @@ def measure_presentation_layout(
             ][:6]
             for index, block in enumerate(bullets):
                 label, detail = _split_feature(block["text"])
-                lead = index == 0
-                width = (470 if lead else 590) - 64
+                lead = profile == "kinetic" and index == 0
+                alternate = str(slide.get("variant", "")).endswith("-alternate")
+                width = ((470 if lead else 590) - 64) if profile == "kinetic" else (400 if alternate else 260)
+                label_size = (23 if lead else 19)
+                detail_size = (16 if lead else (12 if profile == "kinetic" else 14))
                 label_key = f"{slide['id']}:card:{index}:label"
                 detail_key = f"{slide['id']}:card:{index}:detail"
                 requests.extend([
                     {
                         "key": label_key, "text": label, "width": width,
-                        "fontFamily": display_font, "fontPx": (23 if lead else 19) * 96 / 72,
+                        "fontFamily": display_font, "fontPx": label_size * 96 / 72,
                         "weight": 700, "lineHeight": 1.18,
                     },
                     {
                         "key": detail_key, "text": detail, "width": width,
-                        "fontFamily": body_font, "fontPx": (16 if lead else 12) * 96 / 72,
+                        "fontFamily": body_font, "fontPx": detail_size * 96 / 72,
                         "weight": 400, "lineHeight": 1.18,
                     },
                 ])
