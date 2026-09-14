@@ -32,10 +32,12 @@ from kolo_design.pdf_designer import (
 from kolo_design.planner import DeterministicPlanner, source_blocks, validate_plan
 from kolo_design.presentation_planner import DeterministicPresentationPlanner, validate_presentation_plan
 from kolo_design.presentation_art_direction import apply_presentation_art_direction, presentation_profile
+from kolo_design.presentation_similarity import compare_presentation_layouts, presentation_layout_identity
 from kolo_design.presentation_layout import measure_presentation_layout
 from kolo_design.presentation_designer import (
     _normalize_presentation_images,
     _safe_presentation_system,
+    _select_presentation_logo,
     create_presentation,
 )
 from kolo_design.util import read_json
@@ -297,6 +299,41 @@ def test_presentation_art_direction_assigns_inspectable_variants() -> None:
     assert [slide["variant"] for slide in directed["slides"]] == ["editorial-poster", "editorial-signoff"]
 
 
+def test_presentation_similarity_flags_reused_geometry_across_brands() -> None:
+    left = {
+        "art_direction": {"profile": "precision"},
+        "slides": [
+            {"archetype": "cover", "variant": "precision-index"},
+            {"archetype": "closing", "variant": "precision-signature"},
+        ],
+    }
+    same_geometry = {
+        "art_direction": {"profile": "precision"},
+        "slides": [
+            {"archetype": "cover", "variant": "precision-index"},
+            {"archetype": "closing", "variant": "precision-signature"},
+        ],
+    }
+    kinetic = {
+        "art_direction": {"profile": "kinetic"},
+        "slides": [
+            {"archetype": "cover", "variant": "kinetic-split"},
+            {"archetype": "closing", "variant": "kinetic-finish"},
+        ],
+    }
+
+    assert presentation_layout_identity(left)["signature"]
+    assert compare_presentation_layouts(left, same_geometry)["nearly_identical"] is True
+    assert compare_presentation_layouts(left, kinetic) == {
+        "schema_version": 1,
+        "similarity": 0.0,
+        "nearly_identical": False,
+        "left_signature": presentation_layout_identity(left)["signature"],
+        "right_signature": presentation_layout_identity(kinetic)["signature"],
+        "threshold": 0.8,
+    }
+
+
 @pytest.mark.skipif(not _browser_executable(), reason="Chromium is required for text measurement")
 def test_presentation_layout_measures_wrapped_card_copy() -> None:
     system = read_json(FIXTURES / "design-system.json")
@@ -385,6 +422,21 @@ def test_powerpoint_rejects_unsupported_image_formats_before_node(tmp_path: Path
     assert rejected == ["/tmp/unsafe.heif"]
     assert [asset["path"] for asset in safe["assets"]] == ["/tmp/safe.webp", str(logo)]
     assert safe["presentation_logo"]["id"] == "brand-mark"
+
+
+def test_presentation_logo_rejects_promotional_lockup_and_ambiguous_nav_crop(tmp_path: Path) -> None:
+    promo = tmp_path / "promo.png"
+    nav_crop = tmp_path / "nav.png"
+    PILImage.new("RGBA", (400, 80), (255, 255, 255, 255)).save(promo)
+    PILImage.new("RGB", (94, 88), "white").save(nav_crop)
+    selected = _select_presentation_logo({
+        "assets": [
+            {"id": "product-lockup", "kind": "logo", "path": str(promo), "source_url": "https://example.com/images/promo_logo_product.png", "score": 500},
+            {"id": "ambiguous-nav", "kind": "logo", "path": str(nav_crop), "source": "visible-header-logo", "source_url": "https://example.com/", "css_width": 46, "css_height": 44, "score": 200},
+        ]
+    })
+
+    assert selected is None
 
 
 def test_powerpoint_rejects_active_svg_logo(tmp_path: Path) -> None:

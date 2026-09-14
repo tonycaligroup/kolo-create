@@ -124,7 +124,18 @@ function addBrandMark(slide, position, fieldColor, options = {}) {
   const needsContrastField = options.contrastField ?? markContrast < 2.2;
   const paddingX = needsContrastField ? 12 : 0;
   const paddingY = needsContrastField ? 7 : 0;
-  if (needsContrastField) addRect(slide, position.left, position.top, position.width, position.height, background, 0);
+  if (needsContrastField) {
+    const candidates = [background, surface, dark, accent];
+    const patchColor = Number.isFinite(markLuminance)
+      ? candidates.reduce((best, candidate) => {
+          const candidateLuminance = lum(candidate);
+          const candidateContrast = (Math.max(markLuminance, candidateLuminance) + .05)
+            / (Math.min(markLuminance, candidateLuminance) + .05);
+          return candidateContrast > best.contrast ? { color: candidate, contrast: candidateContrast } : best;
+        }, { color: background, contrast: 0 }).color
+      : background;
+    addRect(slide, position.left, position.top, position.width, position.height, patchColor, 0);
+  }
   const availableWidth = position.width - paddingX * 2;
   const availableHeight = position.height - paddingY * 2;
   let width = availableWidth;
@@ -527,31 +538,54 @@ for (let index = 0; index < spec.plan.slides.length; index++) {
   } else if (planSlide.archetype === "closing") {
     const copy = body.filter((block) => block.kind !== "action").map((block) => clean(block.text)).join("\n\n");
     const action = body.find((block) => block.kind === "action");
-    const field = profile === "editorial" && contrast(accent, palette.text) >= 4.5 ? accent
-      : profile === "product" && contrast(secondary, "#FFFFFF") >= 4.5 ? secondary : dark;
-    const onField = readable(field, palette.background);
-    prepareSlide(slide, field);
-    if (profile === "product") {
-      addRect(slide, 0, 0, 28, 720, accent);
-      addRect(slide, 1000, 64, 200, 112, accent, 12);
-      addText(slide, "READY", 1020, 84, 160, 70, 24, readable(accent, palette.text), { body: true, bold: true, align: "center" });
-    } else if (profile === "editorial") {
-      addText(slide, "FIN", 1050, 50, 140, 52, 28, secondary, { body: true, bold: true, align: "right" });
-      addRule(slide, 72, 112, 1070, onField, 2);
-    } else if (profile === "monochrome") {
-      addOutline(slide, 48, 42, 1184, 636, onField, 2);
-    } else if (profile === "kinetic") {
-      addRect(slide, 0, 0, 22, 720, accent);
-      addRect(slide, 22, 0, 12, 720, secondary);
-    }
-    const left = profile === "monochrome" ? 82 : 72;
-    addBrandMark(slide, { left, top: 48, width: 210, height: 58 }, field,
-      { color: profile === "editorial" ? onField : accent, name: "brand-label" });
-    addText(slide, balancedHeadline(planSlide.title), left, 150, profile === "product" ? 850 : 1040, 190, 44, onField, { bold: true, name: "title" });
-    addText(slide, copy, left, 348, 850, 128, 21, onField, { body: true, bold: false, vertical: "top", name: "closing-copy" });
-    if (action) {
-      addRule(slide, left, 552, 420, profile === "editorial" ? onField : accent, 5);
-      addText(slide, action.text, left, 574, 600, 44, 18, onField, { body: true, bold: true });
+    if (profile === "kinetic") {
+      // Close the way the kinetic cover opens: light editorial copy beside a bold field.
+      // This also lets dark native marks sit directly on the page instead of inside a
+      // conspicuous contrast patch.
+      prepareSlide(slide, background);
+      addRect(slide, 860, 0, 420, 720, dark);
+      addRule(slide, 72, 118, 228, accent, 8);
+      addRule(slide, 316, 118, 92, secondary, 8);
+      addBrandMark(slide, { left: 72, top: 42, width: 210, height: 58 }, background,
+        { color: ink, name: "brand-label", contrastField: false });
+      addText(slide, balancedHeadline(planSlide.title), 72, 166, 700, 184, 46, ink,
+        { bold: true, name: "title" });
+      addText(slide, copy, 72, 374, 650, 118, 20, ink,
+        { body: true, bold: false, vertical: "top", name: "closing-copy" });
+      if (action) {
+        addRule(slide, 72, 548, 160, accent, 4);
+        addText(slide, action.text, 72, 572, 620, 46, 17, ink,
+          { body: true, bold: true, vertical: "top" });
+      }
+      const onDark = readable(dark, "#FFFFFF");
+      addText(slide, "CREATE", 918, 150, 285, 58, 25, onDark, { body: true, bold: true });
+      addText(slide, "APPLY", 918, 258, 285, 58, 25, onDark, { body: true, bold: true });
+      addText(slide, "EVOLVE", 918, 366, 285, 58, 25, onDark, { body: true, bold: true });
+      addText(slide, "06", 918, 578, 250, 72, 42, accent, { body: true, bold: true });
+    } else {
+      const field = profile === "editorial" && contrast(accent, palette.text) >= 4.5 ? accent
+        : profile === "product" && contrast(secondary, "#FFFFFF") >= 4.5 ? secondary : dark;
+      const onField = readable(field, palette.background);
+      prepareSlide(slide, field);
+      if (profile === "product") {
+        addRect(slide, 0, 0, 28, 720, accent);
+        addRect(slide, 1000, 64, 200, 112, accent, 12);
+        addText(slide, "READY", 1020, 84, 160, 70, 24, readable(accent, palette.text), { body: true, bold: true, align: "center" });
+      } else if (profile === "editorial") {
+        addText(slide, "FIN", 1050, 50, 140, 52, 28, secondary, { body: true, bold: true, align: "right" });
+        addRule(slide, 72, 112, 1070, onField, 2);
+      } else if (profile === "monochrome") {
+        addOutline(slide, 48, 42, 1184, 636, onField, 2);
+      }
+      const left = profile === "monochrome" ? 82 : 72;
+      addBrandMark(slide, { left, top: 48, width: 210, height: 58 }, field,
+        { color: profile === "editorial" ? onField : accent, name: "brand-label" });
+      addText(slide, balancedHeadline(planSlide.title), left, 150, profile === "product" ? 850 : 1040, 190, 44, onField, { bold: true, name: "title" });
+      addText(slide, copy, left, 348, 850, 128, 21, onField, { body: true, bold: false, vertical: "top", name: "closing-copy" });
+      if (action) {
+        addRule(slide, left, 552, 420, profile === "editorial" ? onField : accent, 5);
+        addText(slide, action.text, left, 574, 600, 44, 18, onField, { body: true, bold: true });
+      }
     }
   } else {
     const useMedia = mediaIndex < media.length;

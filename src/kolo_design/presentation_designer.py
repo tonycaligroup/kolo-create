@@ -26,6 +26,7 @@ from .planner import source_blocks
 from .presentation_planner import DeterministicPresentationPlanner, PresentationPlanner, validate_presentation_plan
 from .presentation_art_direction import apply_presentation_art_direction
 from .presentation_layout import measure_presentation_layout
+from .presentation_similarity import presentation_layout_identity
 from .util import read_json, sha256_bytes, write_json
 
 
@@ -73,6 +74,28 @@ def _select_presentation_logo(system: dict[str, Any]) -> dict[str, Any] | None:
     for asset in system.get("assets", []):
         if asset.get("kind") != "logo":
             continue
+        source_url = str(asset.get("source_url", "")).casefold()
+        # Promotional product lockups are not the parent brand mark. A screenshot
+        # of a near-square opaque nav target is also too ambiguous to trust: it can
+        # capture an adjacent label rather than the icon itself. Prefer a truthful
+        # text fallback when extraction has no defensible brand asset.
+        if any(marker in source_url for marker in ("promo_logo", "promo-logo", "campaign-logo")):
+            continue
+        css_width = float(asset.get("css_width", 0) or 0)
+        css_height = float(asset.get("css_height", 0) or 0)
+        path = Path(str(asset.get("path", "")))
+        if (
+            asset.get("source") == "visible-header-logo"
+            and css_width > 0 and css_height > 0
+            and css_width / css_height < 1.35
+            and path.suffix.lower() in _PRESENTATION_IMAGE_SUFFIXES
+        ):
+            try:
+                with PILImage.open(path) as image:
+                    if image.mode not in {"RGBA", "LA", "P"}:
+                        continue
+            except (OSError, ValueError):
+                continue
         enriched = select_logo_asset(
             {"assets": [asset]}, allow_svg=False, max_width=180, max_height=52, minimum_density=1.25
         )
@@ -595,6 +618,7 @@ def create_presentation(
             "distinct_layout_variants": len({slide["variant"] for slide in plan["slides"]}),
         },
         "art_direction": plan["art_direction"],
+        "layout_identity": presentation_layout_identity(plan),
         "layout_measurement": {
             "engine": plan["layout_measurements"]["engine"],
             "request_count": plan["layout_measurements"]["request_count"],
