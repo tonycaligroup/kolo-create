@@ -31,6 +31,22 @@ PAGE_MARKERS = {"cover-only", "all-pages", "none"}
 SECTION_MARKERS = {"selective", "frequent", "none"}
 
 
+PRODUCTION_USE_VALUES = {"allow", "reference-only", "uncertain"}
+
+
+def _deterministic_production_eligible(asset: dict[str, Any]) -> bool:
+    """Read the deterministic media verdict, ignoring any earlier director run.
+
+    ``asset_class`` is written by the deterministic media policy and never by the
+    director, so it remains authoritative when the director is applied again to a
+    system that already carries a previous ``production_eligible`` verdict.
+    """
+    asset_class = asset.get("asset_class")
+    if asset_class is not None:
+        return asset_class != "reference-evidence"
+    return asset.get("production_eligible") is not False
+
+
 class BrandDirectionError(RuntimeError):
     pass
 
@@ -241,8 +257,11 @@ def _validate(value: dict[str, Any], system: dict[str, Any]) -> dict[str, Any]:
                 or not isinstance(decision.get("reason"), str)
             ):
                 raise ValueError(f"{field} contains an unknown asset or decision")
-            if field == "hero_decisions" and decision.get("production_use") not in {"allow", "reference-only", "uncertain"}:
-                raise ValueError("hero_decisions require a valid production_use")
+            if field == "hero_decisions" and decision.get("production_use") not in PRODUCTION_USE_VALUES:
+                # A missing or unrecognised production_use must not abort
+                # extraction. "uncertain" is the fail-closed value: the asset
+                # stays reference-only until a director explicitly allows it.
+                decision["production_use"] = "uncertain"
             seen.add(asset_id)
     composition = value.get("composition") or {}
     if any(not isinstance(composition.get(key), list) or len(composition[key]) > 6 for key in ("prefer", "avoid")):
@@ -321,7 +340,7 @@ def apply_brand_direction(
             asset["director_reason"] = str(decision.get("reason", ""))[:240]
             asset["director_eligible"] = decision["decision"] != "reject"
             if asset.get("kind") == "hero-image":
-                deterministic_eligible = asset.get("production_eligible") is not False
+                deterministic_eligible = _deterministic_production_eligible(asset)
                 asset["director_production_use"] = decision["production_use"]
                 asset["production_eligible"] = bool(
                     deterministic_eligible

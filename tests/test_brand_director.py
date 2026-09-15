@@ -112,6 +112,52 @@ def test_brand_director_cannot_override_deterministic_reference_only_media(tmp_p
     assert hero["production_eligible"] is False
 
 
+def test_brand_director_missing_production_use_defaults_to_uncertain(tmp_path: Path) -> None:
+    system_path, latest_path = _system(tmp_path)
+    system = read_json(system_path)
+    system["assets"].append({
+        "id": "clean-hero", "kind": "hero-image", "path": str(tmp_path / "hero.png"),
+        "asset_class": "production-media", "production_eligible": True,
+    })
+    write_json(system_path, system)
+    judgment = _judgment()
+    judgment["hero_decisions"] = [{"asset_id": "clean-hero", "decision": "accept", "reason": "signature image"}]
+    calls: list[str] = []
+
+    def invoke(model: str, prompt: str, images: list[Path]) -> str:
+        calls.append(prompt)
+        return json.dumps(judgment)
+
+    result = apply_brand_direction(system_path, latest_path, mode="llm", invoke=invoke)
+    assert result["status"] == "succeeded"
+    assert len(calls) == 1
+    hero = next(asset for asset in read_json(system_path)["assets"] if asset["id"] == "clean-hero")
+    assert hero["director_production_use"] == "uncertain"
+    assert hero["production_eligible"] is False
+
+
+def test_brand_director_rerun_can_restore_deterministically_clean_media(tmp_path: Path) -> None:
+    system_path, latest_path = _system(tmp_path)
+    system = read_json(system_path)
+    system["assets"].append({
+        "id": "clean-hero", "kind": "hero-image", "path": str(tmp_path / "hero.png"),
+        "asset_class": "production-media", "production_eligible": True,
+    })
+    write_json(system_path, system)
+    apply_brand_direction(
+        system_path, latest_path, mode="llm",
+        invoke=lambda model, prompt, images: json.dumps(_judgment_with_hero("clean-hero", "uncertain")),
+    )
+    assert next(a for a in read_json(system_path)["assets"] if a["id"] == "clean-hero")["production_eligible"] is False
+    apply_brand_direction(
+        system_path, latest_path, mode="llm",
+        invoke=lambda model, prompt, images: json.dumps(_judgment_with_hero("clean-hero", "allow")),
+    )
+    hero = next(a for a in read_json(system_path)["assets"] if a["id"] == "clean-hero")
+    assert hero["production_eligible"] is True
+    assert hero["asset_class"] == "production-media"
+
+
 def test_direct_brand_call_omits_model_specific_temperature(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
